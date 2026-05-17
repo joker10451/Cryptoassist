@@ -1,0 +1,9 @@
+{
+  "name": "crypto-hunter-bot",
+  "version": "1.0.0",
+  "description": "Crypto Hunter OS Telegram Bot",
+  "main": "index.js",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}

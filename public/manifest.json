@@ -1,0 +1,17 @@
+{
+  "name": "Crypto Hunter OS",
+  "short_name": "CryptoHunter",
+  "description": "Персональный командный центр для крипто-фарминга",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    }
+  ]
+}
