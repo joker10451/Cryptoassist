@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/scoring/detect?sinceHours=3",
+      "schedule": "15 */3 * * *"
+    },
+    {
+      "path": "/api/scoring/calibrate",
+      "schedule": "30 4 * * *"
+    }
+  ]
+}

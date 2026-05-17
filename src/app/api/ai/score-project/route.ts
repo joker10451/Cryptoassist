@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCachedAnalysis, saveCachedAnalysis, hashKey } from '@/lib/aiCache'
+import { scoreProject } from '@/lib/scoring/engine'
+import { getActiveWeights, getHotNarratives } from '@/lib/scoring/state'
+import type { ScoringInputs } from '@/lib/scoring/types'
+import { supabase } from '@/lib/supabase'
 
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || ''
 const CACHE_TTL = 10 * 60 * 1000
 
-async function fetchWithTimeout(url: string, options: RequestInit, timeout = 15000) {
+async function fetchWithTimeout(url: string, options: RequestInit, timeout = 12000) {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeout)
   try {
@@ -17,150 +21,185 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 150
   }
 }
 
+interface ScoreRequest extends ScoringInputs {
+  name: string
+  category?: string
+  description?: string | null
+  chains?: string[] | null
+  tvl?: number | null
+  signals?: string[] | null
+  /** Если true — пропустить AI enrichment (только числа, быстро). */
+  skipAi?: boolean
+  /** Если есть — записать в scoring_outcomes с этим project_id. */
+  projectId?: string | null
+}
+
+interface AiEnrichment {
+  alpha_summary: string
+  what_to_do_next: string[]
+  red_flags: string[]
+  detected_narratives: string[]
+}
+
+const EMPTY_ENRICHMENT: AiEnrichment = {
+  alpha_summary: '',
+  what_to_do_next: [],
+  red_flags: [],
+  detected_narratives: [],
+}
+
+async function aiEnrich(body: ScoreRequest, score: number): Promise<AiEnrichment> {
+  if (!NVIDIA_API_KEY) return EMPTY_ENRICHMENT
+
+  const prompt = `You are a crypto research analyst. The numeric score is ALREADY computed.
+Project: ${body.name}
+Category: ${body.category || 'unknown'}
+Token status: ${body.token_status || 'unknown'}
+Funding: ${body.funding_amount ? `$${body.funding_amount}` : 'unknown'}
+Investors: ${(body.investors || []).join(', ') || 'unknown'}
+Description: ${body.description || 'n/a'}
+Chains: ${(body.chains || []).join(', ') || 'unknown'}
+TVL: ${body.tvl ? `$${body.tvl}` : 'unknown'}
+Recent signals: ${(body.signals || []).join(' | ') || 'none'}
+Computed score: ${score}/100
+
+Produce ONLY JSON:
+{
+  "alpha_summary": "1-2 sentences in Russian, what makes this project notable now",
+  "what_to_do_next": ["2-4 concrete farming actions"],
+  "red_flags": ["any concerns, empty if none"],
+  "detected_narratives": ["short tags like 'L2', 'Restaking', 'AI', 'Modular'"]
+}`
+
+  try {
+    const response = await fetchWithTimeout(
+      'https://integrate.api.nvidia.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${NVIDIA_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'meta/llama-3.1-8b-instruct',
+          messages: [
+            {
+              role: 'system',
+              content: 'You return ONLY valid JSON. No markdown, no commentary.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 384,
+        }),
+      },
+    )
+
+    if (!response.ok) return EMPTY_ENRICHMENT
+    const data = await response.json()
+    const content: string = data.choices?.[0]?.message?.content || '{}'
+    const clean = content.replace(/```json/g, '').replace(/```/g, '').trim()
+    const m = clean.match(/\{[\s\S]*\}/)
+    if (!m) return EMPTY_ENRICHMENT
+    const parsed = JSON.parse(m[0])
+    return {
+      alpha_summary: typeof parsed.alpha_summary === 'string' ? parsed.alpha_summary : '',
+      what_to_do_next: Array.isArray(parsed.what_to_do_next) ? parsed.what_to_do_next : [],
+      red_flags: Array.isArray(parsed.red_flags) ? parsed.red_flags : [],
+      detected_narratives: Array.isArray(parsed.detected_narratives)
+        ? parsed.detected_narratives
+        : [],
+    }
+  } catch (err) {
+    console.warn('[score-project] AI enrich failed:', err)
+    return EMPTY_ENRICHMENT
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { name, category, funding, investors, tokenStatus, description, chains, tvl, signals } = await req.json()
-
-    if (!name) {
+    const body = (await req.json()) as ScoreRequest
+    if (!body?.name) {
       return NextResponse.json({ error: 'Название проекта обязательно' }, { status: 400 })
     }
 
-    const cacheKey = `score-v2-${hashKey(JSON.stringify({ name, category, funding, investors, tokenStatus, chains, tvl }))}`
+    const cacheKey = `score-v2-${hashKey(JSON.stringify(body))}`
     const cached = await getCachedAnalysis('score_project', cacheKey, CACHE_TTL)
-    if (cached) {
-      return NextResponse.json(cached)
-    }
+    if (cached) return NextResponse.json(cached)
 
-    const prompt = `You are an elite crypto research analyst and venture scout working for a top-tier crypto fund (Paradigm / a16z level).
+    const [weights, hot] = await Promise.all([getActiveWeights(), getHotNarratives()])
+    const breakdown = scoreProject(body, { weights, hotNarratives: hot })
 
-Analyze this crypto project:
+    // AI enrichment может смержить нарративы из текста
+    const enrichment = body.skipAi
+      ? EMPTY_ENRICHMENT
+      : await aiEnrich(body, breakdown.final_score)
 
-Project: ${name}
-Category: ${category || 'Unknown'}
-Funding: ${funding ? `$${funding}` : 'Unknown'}
-Investors: ${investors?.join(', ') || 'Unknown'}
-Token Status: ${tokenStatus || 'Unknown'}
-Description: ${description || 'No description'}
-Chains: ${chains?.join(', ') || 'Unknown'}
-TVL: ${tvl ? `$${tvl}` : 'Unknown'}
-Recent Signals: ${signals?.join(', ') || 'No recent signals'}
-
-Evaluate using this scoring model (0-100):
-
-1. Airdrop Probability (0-25):
-   - No token launched yet? +points
-   - Points system exists? +points
-   - History of retroactive rewards? +points
-
-2. Expected Value (0-25):
-   - VC funding quality (Paradigm, a16z, Coinbase = top tier)
-   - Ecosystem importance
-   - User adoption potential
-
-3. Farming Signal Strength (0-20):
-   - Testnet available
-   - Quests / Galxe / Layer3 campaigns
-   - Onchain activity required
-
-4. Momentum (0-15):
-   - Twitter growth
-   - Hype increase
-   - Developer activity
-
-5. Risk (subtract 0-15):
-   - Scam risk
-   - Overhyped / already saturated
-   - No clear incentive structure
-
-Classification:
-90-100: LEGENDARY_ALPHA (farm immediately)
-75-89: HIGH_PRIORITY (strong opportunity)
-50-74: MEDIUM (selective farming)
-30-49: LOW (skip unless low effort)
-0-29: NOISE (ignore)
-
-Return ONLY valid JSON:
-{
-  "score": 78,
-  "category": "HIGH_PRIORITY",
-  "expected_value_min": 500,
-  "expected_value_max": 5000,
-  "time_to_farm": "medium",
-  "risk_level": "low",
-  "key_signals": ["signal 1", "signal 2"],
-  "why_this_score": "short clear explanation",
-  "what_to_do_next": ["action 1", "action 2", "action 3"],
-  "red_flags": ["flag 1"],
-  "alpha_summary": "1-2 sentence summary"
-}`
-
-    const response = await fetchWithTimeout('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'meta/llama-3.1-8b-instruct',
-        messages: [
-          { role: 'system', content: 'You are a crypto analyst API. Return ONLY valid JSON. No markdown, no explanations, no code blocks.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 512,
-      }),
-    })
-
-    if (!response.ok) {
-      return NextResponse.json({ error: 'Ошибка AI сервиса' }, { status: 500 })
-    }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content || '{}'
-
-    let parsed
-    try {
-      const clean = content.replace(/```json/g, '').replace(/```/g, '').trim()
-      const jsonMatch = clean.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) throw new Error('No JSON found')
-      parsed = JSON.parse(jsonMatch[0])
-    } catch {
-      parsed = {
-        score: 50,
-        category: 'MEDIUM',
-        expected_value_min: 100,
-        expected_value_max: 1000,
-        time_to_farm: 'medium',
-        risk_level: 'medium',
-        key_signals: ['Недостаточно данных'],
-        why_this_score: 'Нет данных для анализа',
-        what_to_do_next: ['Изучите проект'],
-        red_flags: [],
-        alpha_summary: 'Требуется больше информации',
-      }
+    // Если AI обнаружил нарративы — пересчитаем (опционально)
+    let finalBreakdown = breakdown
+    if (enrichment.detected_narratives.length > 0 && (body.narratives || []).length === 0) {
+      finalBreakdown = scoreProject(
+        { ...body, narratives: enrichment.detected_narratives },
+        { weights, hotNarratives: hot },
+      )
     }
 
     const result = {
-      score: typeof parsed.score === 'number' ? Math.min(100, Math.max(0, parsed.score)) : 50,
-      category: parsed.category || 'MEDIUM',
-      expected_value_min: typeof parsed.expected_value_min === 'number' ? parsed.expected_value_min : 100,
-      expected_value_max: typeof parsed.expected_value_max === 'number' ? parsed.expected_value_max : 1000,
-      time_to_farm: parsed.time_to_farm || 'medium',
-      risk_level: parsed.risk_level || 'medium',
-      key_signals: Array.isArray(parsed.key_signals) ? parsed.key_signals : [],
-      why_this_score: parsed.why_this_score || '',
-      what_to_do_next: Array.isArray(parsed.what_to_do_next) ? parsed.what_to_do_next : [],
-      red_flags: Array.isArray(parsed.red_flags) ? parsed.red_flags : [],
-      alpha_summary: parsed.alpha_summary || '',
+      score: finalBreakdown.final_score,
+      classification: finalBreakdown.classification,
+      breakdown: {
+        founding_quality: finalBreakdown.founding_quality,
+        airdrop_likelihood: finalBreakdown.airdrop_likelihood,
+        farming_accessibility: finalBreakdown.farming_accessibility,
+        market_momentum: finalBreakdown.market_momentum,
+        signal_freshness: finalBreakdown.signal_freshness,
+        narrative_strength: finalBreakdown.narrative_strength,
+        risk: finalBreakdown.risk,
+      },
+      reasons: finalBreakdown.reasons,
+      missing_signals: finalBreakdown.missing_signals,
+      weights: finalBreakdown.weights,
+      alpha_summary: enrichment.alpha_summary,
+      what_to_do_next: enrichment.what_to_do_next,
+      red_flags: enrichment.red_flags,
+      detected_narratives: enrichment.detected_narratives,
+      // Совместимость со старым клиентом: ai/page.tsx ждёт probability/estimatedRewardMin/...
+      probability: finalBreakdown.final_score,
+      estimatedRewardMin: 100,
+      estimatedRewardMax: 5000,
+      riskLevel: Math.round(finalBreakdown.risk / 10),
+      popularity: finalBreakdown.market_momentum >= 60 ? 'high' : finalBreakdown.market_momentum >= 30 ? 'medium' : 'low',
+      summary: enrichment.alpha_summary,
+      recommendation: enrichment.what_to_do_next.join(' → '),
     }
 
-    void saveCachedAnalysis('score_project', cacheKey, { name, category, tokenStatus }, result)
+    void saveCachedAnalysis('score_project', cacheKey, { name: body.name }, result)
+
+    // Лог в outcomes — без resolved_at, чтобы потом можно было закрыть исход вручную.
+    if (body.projectId) {
+      // any-каст: scoring_outcomes ещё не сгенерирована в database.ts (свежая миграция)
+      void (supabase as unknown as { from: (t: string) => { insert: (v: unknown) => Promise<{ error: { message: string } | null }> } })
+        .from('scoring_outcomes')
+        .insert({
+          project_id: body.projectId,
+          project_name: body.name,
+          score_predicted: finalBreakdown.final_score,
+          classification_predicted: finalBreakdown.classification,
+          breakdown: finalBreakdown,
+          weights_used: finalBreakdown.weights,
+        })
+        .then(({ error }) => {
+          if (error) console.warn('[score-project] outcomes log:', error.message)
+        })
+    }
+
     return NextResponse.json(result)
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
+  } catch (err: unknown) {
+    const e = err as { name?: string; message?: string }
+    if (e?.name === 'AbortError') {
       return NextResponse.json({ error: 'Таймаут AI' }, { status: 504 })
     }
-    console.error('Score error:', error)
-    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+    console.error('Score error:', err)
+    return NextResponse.json({ error: 'Ошибка скоринга' }, { status: 500 })
   }
 }

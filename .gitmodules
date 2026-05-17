@@ -1,0 +1,3 @@
+[submodule "xaccount"]
+	path = xaccount
+	url = https://github.com/joker10451/xaccount.git

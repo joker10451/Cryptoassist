@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // External submodule with X account content — not part of the app
+    "xaccount/**",
+    // Out-of-app worker scripts
+    "scripts/**",
   ]),
 ]);
 

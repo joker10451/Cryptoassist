@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Grid, List, ExternalLink, RefreshCw, Plus } from 'lucide-react'
+import { Search, Grid, List, ExternalLink, RefreshCw, Plus, Database } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, getProbabilityColor, getProbabilityBg } from '@/lib/utils'
@@ -44,6 +44,8 @@ export default function ProjectsPage() {
   const [adding, setAdding] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [autoRefreshStatus, setAutoRefreshStatus] = useState<'idle' | 'refreshing' | 'done'>('idle')
+  const [enrichStatus, setEnrichStatus] = useState<'idle' | 'running' | 'done'>('idle')
+  const [enrichSummary, setEnrichSummary] = useState<string | null>(null)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -113,6 +115,37 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleEnrich = async () => {
+    if (enrichStatus === 'running') return
+    setEnrichStatus('running')
+    setEnrichSummary(null)
+    try {
+      const res = await fetch('/api/projects/enrich-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, limit: 50 }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        const cgCount = data.results?.filter((r: { sources: { cg: boolean } }) => r.sources.cg).length ?? 0
+        const dlCount = data.results?.filter((r: { sources: { dl: boolean } }) => r.sources.dl).length ?? 0
+        const ghCount = data.results?.filter((r: { sources: { gh: string | null } }) => r.sources.gh).length ?? 0
+        setEnrichSummary(
+          `Обогащено: ${data.updated_count}/${data.total} · CoinGecko: ${cgCount}, DefiLlama: ${dlCount}, GitHub: ${ghCount}`,
+        )
+        refresh()
+        setEnrichStatus('done')
+        setTimeout(() => setEnrichStatus('idle'), 5000)
+      } else {
+        setEnrichSummary(`Ошибка: ${data.error || 'unknown'}`)
+        setEnrichStatus('idle')
+      }
+    } catch (err) {
+      setEnrichSummary(`Ошибка: ${(err as Error).message}`)
+      setEnrichStatus('idle')
+    }
+  }
+
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       project.description?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -141,6 +174,9 @@ export default function ProjectsPage() {
               Обновлено: {lastRefreshed.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
             </p>
           )}
+          {enrichSummary && (
+            <p className="text-xs text-orange-300 mt-1">{enrichSummary}</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {discoveredCount > 0 && (
@@ -167,6 +203,19 @@ export default function ProjectsPage() {
           >
             <RefreshCw size={14} className={discovering ? 'animate-spin' : ''} />
             Авто-поиск
+          </button>
+          <button
+            onClick={handleEnrich}
+            disabled={enrichStatus === 'running'}
+            title="Обогатить проекты данными из CoinGecko, DefiLlama и GitHub"
+            className={`flex items-center gap-2 px-3 py-2 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+              enrichStatus === 'done'
+                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : 'bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/30'
+            }`}
+          >
+            <Database size={14} className={enrichStatus === 'running' ? 'animate-pulse' : ''} />
+            {enrichStatus === 'running' ? 'Обогащение…' : enrichStatus === 'done' ? 'Готово' : 'Обогатить из API'}
           </button>
           <button
             onClick={() => setShowAddModal(true)}

@@ -105,6 +105,65 @@ export type Database = {
           },
         ]
       }
+      detected_opportunities: {
+        Row: {
+          category: string | null
+          confidence: number
+          created_project_id: string | null
+          description: string | null
+          evidence: Json | null
+          first_seen: string
+          id: string
+          last_seen: string
+          mentions_count: number
+          project_name: string
+          project_slug: string
+          reviewed_at: string | null
+          signal_ids: string[] | null
+          status: string
+        }
+        Insert: {
+          category?: string | null
+          confidence?: number
+          created_project_id?: string | null
+          description?: string | null
+          evidence?: Json | null
+          first_seen?: string
+          id?: string
+          last_seen?: string
+          mentions_count?: number
+          project_name: string
+          project_slug: string
+          reviewed_at?: string | null
+          signal_ids?: string[] | null
+          status?: string
+        }
+        Update: {
+          category?: string | null
+          confidence?: number
+          created_project_id?: string | null
+          description?: string | null
+          evidence?: Json | null
+          first_seen?: string
+          id?: string
+          last_seen?: string
+          mentions_count?: number
+          project_name?: string
+          project_slug?: string
+          reviewed_at?: string | null
+          signal_ids?: string[] | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detected_opportunities_created_project_id_fkey"
+            columns: ["created_project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       missed_opportunities: {
         Row: {
           completion_percentage: number | null
@@ -153,6 +212,33 @@ export type Database = {
           },
         ]
       }
+      narrative_state: {
+        Row: {
+          hot: boolean
+          id: string
+          source: string | null
+          tag: string
+          updated_at: string
+          weight: number
+        }
+        Insert: {
+          hot?: boolean
+          id?: string
+          source?: string | null
+          tag: string
+          updated_at?: string
+          weight?: number
+        }
+        Update: {
+          hot?: boolean
+          id?: string
+          source?: string | null
+          tag?: string
+          updated_at?: string
+          weight?: number
+        }
+        Relationships: []
+      }
       projects: {
         Row: {
           ai_summary: string | null
@@ -174,6 +260,9 @@ export type Database = {
           investors: string[] | null
           name: string
           probability_score: number | null
+          referral_code: string | null
+          referral_notes: string | null
+          referral_url: string | null
           risk_score: number | null
           slug: string
           snapshot_date: string | null
@@ -205,6 +294,9 @@ export type Database = {
           investors?: string[] | null
           name: string
           probability_score?: number | null
+          referral_code?: string | null
+          referral_notes?: string | null
+          referral_url?: string | null
           risk_score?: number | null
           slug: string
           snapshot_date?: string | null
@@ -236,6 +328,9 @@ export type Database = {
           investors?: string[] | null
           name?: string
           probability_score?: number | null
+          referral_code?: string | null
+          referral_notes?: string | null
+          referral_url?: string | null
           risk_score?: number | null
           slug?: string
           snapshot_date?: string | null
@@ -248,6 +343,98 @@ export type Database = {
           website_url?: string | null
         }
         Relationships: []
+      }
+      raw_signals: {
+        Row: {
+          author: string | null
+          collected_at: string
+          content: string
+          external_id: string | null
+          id: string
+          importance: number | null
+          matched_keywords: string[] | null
+          matched_projects: string[] | null
+          processed_at: string | null
+          source: string
+          url: string | null
+        }
+        Insert: {
+          author?: string | null
+          collected_at?: string
+          content: string
+          external_id?: string | null
+          id?: string
+          importance?: number | null
+          matched_keywords?: string[] | null
+          matched_projects?: string[] | null
+          processed_at?: string | null
+          source: string
+          url?: string | null
+        }
+        Update: {
+          author?: string | null
+          collected_at?: string
+          content?: string
+          external_id?: string | null
+          id?: string
+          importance?: number | null
+          matched_keywords?: string[] | null
+          matched_projects?: string[] | null
+          processed_at?: string | null
+          source?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
+      referral_posts: {
+        Row: {
+          body: string
+          created_at: string
+          external_id: string | null
+          id: string
+          metrics: Json | null
+          project_id: string | null
+          published_at: string | null
+          ref_url: string | null
+          scheduled_at: string | null
+          status: string
+          template: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          external_id?: string | null
+          id?: string
+          metrics?: Json | null
+          project_id?: string | null
+          published_at?: string | null
+          ref_url?: string | null
+          scheduled_at?: string | null
+          status?: string
+          template: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          external_id?: string | null
+          id?: string
+          metrics?: Json | null
+          project_id?: string | null
+          published_at?: string | null
+          ref_url?: string | null
+          scheduled_at?: string | null
+          status?: string
+          template?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_posts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reminders: {
         Row: {
@@ -318,6 +505,92 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scoring_outcomes: {
+        Row: {
+          airdrop_happened: boolean | null
+          breakdown: Json | null
+          classification_predicted: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          predicted_at: string
+          project_id: string | null
+          project_name: string
+          real_outcome_value_usd: number | null
+          resolved_at: string | null
+          score_predicted: number
+          user_farmed: boolean | null
+          weights_used: Json | null
+        }
+        Insert: {
+          airdrop_happened?: boolean | null
+          breakdown?: Json | null
+          classification_predicted?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          predicted_at?: string
+          project_id?: string | null
+          project_name: string
+          real_outcome_value_usd?: number | null
+          resolved_at?: string | null
+          score_predicted: number
+          user_farmed?: boolean | null
+          weights_used?: Json | null
+        }
+        Update: {
+          airdrop_happened?: boolean | null
+          breakdown?: Json | null
+          classification_predicted?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          predicted_at?: string
+          project_id?: string | null
+          project_name?: string
+          real_outcome_value_usd?: number | null
+          resolved_at?: string | null
+          score_predicted?: number
+          user_farmed?: boolean | null
+          weights_used?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scoring_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scoring_weights: {
+        Row: {
+          active: boolean
+          calibrated_from: number | null
+          created_at: string
+          id: string
+          notes: string | null
+          weights: Json
+        }
+        Insert: {
+          active?: boolean
+          calibrated_from?: number | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          weights: Json
+        }
+        Update: {
+          active?: boolean
+          calibrated_from?: number | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          weights?: Json
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
@@ -763,4 +1036,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

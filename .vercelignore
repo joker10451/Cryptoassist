@@ -1,0 +1,8 @@
+# Submodule с приватным контентом X-аккаунта — не нужен в production-билде.
+xaccount
+
+# Out-of-app workers (Playwright и т.д.) — запускаются отдельно.
+scripts
+
+# Локальные миграции БД — выкатываются вручную в Supabase.
+supabase

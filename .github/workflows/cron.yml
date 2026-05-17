@@ -1,0 +1,56 @@
+name: scoring-cron
+
+# Альтернатива Vercel Cron — для self-hosted деплоев или если нужно
+# дёргать дополнительные эндпоинты, которые Vercel Cron не покрывает.
+#
+# Чтобы включить:
+#  1. В secrets репо положить APP_URL (например https://yourapp.vercel.app)
+#     и INTERNAL_TOKEN (любая длинная строка).
+#  2. Эту же INTERNAL_TOKEN положить в env приложения.
+#  3. Если используешь Vercel Cron — этот workflow можно отключить, чтобы
+#     не дёргать одни и те же эндпоинты двумя путями.
+
+on:
+  schedule:
+    # Detect: каждые 3 часа в :20
+    - cron: '20 */3 * * *'
+    # Calibrate: раз в сутки в 04:35 UTC
+    - cron: '35 4 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  detect:
+    if: github.event.schedule == '20 */3 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run detector
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$INTERNAL_TOKEN" ]; then
+            echo "::warning::APP_URL or INTERNAL_TOKEN secret missing — skipping"
+            exit 0
+          fi
+          curl -fsS -X POST "$APP_URL/api/scoring/detect" \
+            -H "x-internal-token: $INTERNAL_TOKEN" \
+            -H "content-type: application/json" \
+            -d '{"sinceHours": 3}'
+
+  calibrate:
+    if: github.event.schedule == '35 4 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run calibrator
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          INTERNAL_TOKEN: ${{ secrets.INTERNAL_TOKEN }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$INTERNAL_TOKEN" ]; then
+            echo "::warning::APP_URL or INTERNAL_TOKEN secret missing — skipping"
+            exit 0
+          fi
+          curl -fsS -X POST "$APP_URL/api/scoring/calibrate" \
+            -H "x-internal-token: $INTERNAL_TOKEN" \
+            -H "content-type: application/json" \
+            -d '{"dryRun": false}'

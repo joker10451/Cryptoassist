@@ -15,6 +15,8 @@ import {
   Menu,
   X,
   Crosshair,
+  Radar,
+  AtSign,
 } from 'lucide-react'
 
 const navItems = [
@@ -23,6 +25,8 @@ const navItems = [
   { icon: Wallet, label: 'Кошельки', href: '/wallets' },
   { icon: CheckSquare, label: 'Задачи', href: '/tasks' },
   { icon: Brain, label: 'ИИ Центр', href: '/ai' },
+  { icon: Radar, label: 'Скоринг', href: '/scoring' },
+  { icon: AtSign, label: 'Реф-кампании', href: '/referrals' },
   { icon: Bell, label: 'Напоминания', href: '/reminders' },
   { icon: Trophy, label: 'Профиль', href: '/profile' },
   { icon: Settings, label: 'Настройки', href: '/settings' },
