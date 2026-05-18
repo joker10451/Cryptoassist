@@ -319,7 +319,9 @@ export default function ProjectsPage() {
               <GlassCard className="h-full">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h3 className="text-lg font-bold text-text-primary">{project.name}</h3>
+                    <a href={`/projects/${project.slug}`} className="text-lg font-bold text-text-primary hover:text-cyan-400 transition-colors">
+                      {project.name}
+                    </a>
                     <p className="text-xs text-text-muted capitalize">{project.category} • {project.ecosystem}</p>
                   </div>
                   <div className={`px-2 py-1 rounded-md text-xs font-mono border ${getProbabilityBg(project.probability_score)}`}>
