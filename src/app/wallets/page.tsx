@@ -39,6 +39,8 @@ export default function WalletsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editTags, setEditTags] = useState('')
+  const [eligibilityLoading, setEligibilityLoading] = useState<string | null>(null)
+  const [eligibilityResults, setEligibilityResults] = useState<Record<string, { wallet_summary: any; eligibility: any[] }>>({})
   const { incrementWalletsCount, decrementWalletsCount, setPortfolioValue } = useUserStore()
 
   const fetchWallets = async () => {
@@ -670,7 +672,60 @@ export default function WalletsPage() {
                         </>
                       )}
                     </button>
+                    <button
+                      onClick={async () => {
+                        setEligibilityLoading(wallet.address)
+                        try {
+                          const res = await fetch('/api/wallets/eligibility', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ address: wallet.address }),
+                          })
+                          const data = await res.json()
+                          if (res.ok) setEligibilityResults((prev) => ({ ...prev, [wallet.address]: data }))
+                        } finally {
+                          setEligibilityLoading(null)
+                        }
+                      }}
+                      disabled={eligibilityLoading === wallet.address}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500/20 text-green-400 rounded-lg border border-green-500/30 hover:bg-green-500/30 transition-colors disabled:opacity-50 text-sm"
+                    >
+                      {eligibilityLoading === wallet.address ? (
+                        <><Loader2 size={16} className="animate-spin" />Проверка...</>
+                      ) : (
+                        <><Check size={16} />Eligibility</>
+                      )}
+                    </button>
                   </div>
+
+                  {/* Eligibility Results */}
+                  {eligibilityResults[wallet.address] && (
+                    <div className="mt-3 pt-3 border-t border-white/5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Check size={14} className="text-green-400" />
+                        <span className="text-xs font-medium text-text-primary">Eligibility по проектам</span>
+                        <span className="text-[10px] text-text-muted ml-auto">
+                          {eligibilityResults[wallet.address].wallet_summary.totalTxCount} tx · {eligibilityResults[wallet.address].wallet_summary.walletAge}д · {eligibilityResults[wallet.address].wallet_summary.chainsActive} сетей
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {(eligibilityResults[wallet.address].eligibility as { projectName: string; score: number; rulesMet: number; rulesTotal: number; missing: string[] }[]).map((e) => (
+                          <div key={e.projectName} className="flex items-center gap-3">
+                            <span className="text-xs text-text-primary w-20 truncate">{e.projectName}</span>
+                            <div className="flex-1">
+                              <ProgressBar
+                                progress={e.score}
+                                color={e.score >= 80 ? 'green' : e.score >= 50 ? 'cyan' : 'red'}
+                              />
+                            </div>
+                            <span className={`text-xs font-mono w-8 text-right ${e.score >= 80 ? 'text-green-400' : e.score >= 50 ? 'text-cyan-400' : 'text-red-400'}`}>
+                              {e.score}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </GlassCard>
               </motion.div>
             )

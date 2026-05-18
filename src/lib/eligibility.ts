@@ -92,6 +92,41 @@ const PROJECT_RULES: ProjectRuleSet[] = [
       { id: 'has_eth', description: 'Держит ETH', weight: 3, check: (w) => parseFloat(w.balance) > 0.01 },
     ],
   },
+  {
+    slug: 'aztec-network',
+    name: 'Aztec Network',
+    rules: [
+      { id: 'tx20', description: '20+ транзакций (privacy L2 ценит активность)', weight: 8, check: (w) => w.totalTxCount >= 20 },
+      { id: 'age180', description: 'Кошелёк старше 180 дней', weight: 7, check: (w) => w.walletAge >= 180 },
+      { id: 'eth_balance', description: 'Держит ETH (для gas на L2)', weight: 6, check: (w) => parseFloat(w.balance) > 0.05 },
+      { id: 'multi_chain', description: 'Активность в 3+ сетях', weight: 5, check: (w) => w.chains.filter((c) => c.txCount > 0).length >= 3 },
+      { id: 'value_500', description: 'Баланс $500+', weight: 5, check: (w) => w.totalUsdValue >= 500 },
+      { id: 'has_tokens', description: 'Держит ERC-20 токены', weight: 3, check: (w) => w.chains.some((c) => c.tokens.length > 0) },
+    ],
+  },
+  {
+    slug: 'initia',
+    name: 'Initia',
+    rules: [
+      { id: 'tx10', description: '10+ транзакций', weight: 7, check: (w) => w.totalTxCount >= 10 },
+      { id: 'age60', description: 'Кошелёк старше 60 дней', weight: 6, check: (w) => w.walletAge >= 60 },
+      { id: 'multi_chain', description: 'Активность в 2+ сетях', weight: 5, check: (w) => w.chains.filter((c) => c.txCount > 0).length >= 2 },
+      { id: 'has_eth', description: 'Держит ETH', weight: 5, check: (w) => parseFloat(w.balance) > 0.01 },
+      { id: 'value_200', description: 'Баланс $200+', weight: 4, check: (w) => w.totalUsdValue >= 200 },
+    ],
+  },
+  {
+    slug: 'fuel-network',
+    name: 'Fuel Network',
+    rules: [
+      { id: 'tx10', description: '10+ транзакций', weight: 7, check: (w) => w.totalTxCount >= 10 },
+      { id: 'age90', description: 'Кошелёк старше 90 дней', weight: 6, check: (w) => w.walletAge >= 90 },
+      { id: 'multi_chain', description: 'Активность в 3+ сетях (modular = multi-chain)', weight: 7, check: (w) => w.chains.filter((c) => c.txCount > 0).length >= 3 },
+      { id: 'has_eth', description: 'Держит ETH (для бриджа)', weight: 5, check: (w) => parseFloat(w.balance) > 0.01 },
+      { id: 'value_300', description: 'Баланс $300+', weight: 4, check: (w) => w.totalUsdValue >= 300 },
+      { id: 'arb_active', description: 'Активность в Arbitrum', weight: 4, check: (w) => (w.chains.find((c) => c.chain === 'arbitrum')?.txCount ?? 0) > 0 },
+    ],
+  },
 ]
 
 /**
