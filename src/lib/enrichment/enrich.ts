@@ -25,6 +25,10 @@ import {
   pickBestRepoMomentum,
   type GitHubRepoMomentum,
 } from './github'
+import {
+  searchFundingRounds,
+  aggregateFunding,
+} from './dropstab'
 
 export interface EnrichmentResult {
   /** Что нашли по источникам — для дебага и отображения. */
@@ -177,20 +181,34 @@ export async function enrichProject(input: EnrichInput): Promise<EnrichmentResul
     }
   }
 
-  // 4. Raises: пробуем по имени (DefiLlama закрыла бесплатно — клиент это игнорит).
+  // 4. Funding: DropsTab (primary) → DefiLlama raises (fallback, paywalled).
   let raisesAgg = { total_usd: 0, investors: [] as string[], rounds: 0 }
   try {
-    const raises = await findRaises(name, dl?.id)
-    raisesAgg = aggregateRaises(raises)
-    if (raisesAgg.rounds > 0) {
+    // DropsTab first
+    const dtRounds = await searchFundingRounds(name)
+    if (dtRounds.length > 0) {
+      raisesAgg = {
+        total_usd: aggregateFunding(dtRounds).total_usd,
+        investors: aggregateFunding(dtRounds).investors,
+        rounds: dtRounds.length,
+      }
       notes.push(
-        `raises: ${raisesAgg.rounds} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M total, ${raisesAgg.investors.length} investors`,
+        `dropstab: ${dtRounds.length} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M, ${raisesAgg.investors.length} investors`,
       )
     } else {
-      notes.push('raises: 0 (DefiLlama paywalled or no data)')
+      // Fallback: DefiLlama (likely paywalled)
+      const raises = await findRaises(name, dl?.id)
+      raisesAgg = aggregateRaises(raises)
+      if (raisesAgg.rounds > 0) {
+        notes.push(
+          `defillama-raises: ${raisesAgg.rounds} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M`,
+        )
+      } else {
+        notes.push('funding: no data (DropsTab empty, DefiLlama paywalled)')
+      }
     }
   } catch (err) {
-    notes.push(`raises error: ${(err as Error).message}`)
+    notes.push(`funding error: ${(err as Error).message}`)
   }
 
   // 5. GitHub: тянем repos из CoinGecko, выбираем самый активный, считаем momentum.
