@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 /**
  * Slug-нормализация: режем известные суффиксы (xyz, io, finance, network, l2 и т.д.).

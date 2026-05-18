@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
+// reply_targets/reply_checkins не в database.ts (миграция после последней генерации типов)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any
 

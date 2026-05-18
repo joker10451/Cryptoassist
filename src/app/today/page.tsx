@@ -231,6 +231,9 @@ export default function TodayPage() {
         </motion.div>
       )}
 
+      {/* Daily Brief: X Growth Checklist */}
+      <DailyBrief />
+
       {/* Portfolio ROI */}
       <PortfolioROI />
 
@@ -436,5 +439,60 @@ export default function TodayPage() {
         </div>
       )}
     </div>
+  )
+}
+
+
+// ---------- Daily Brief: X Growth Checklist --------------------------------
+
+function DailyBrief() {
+  const [stats, setStats] = useState<{ today: number; week: number } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/referrals/targets')
+      .then((r) => r.json())
+      .then((d) => setStats(d.stats ?? null))
+      .catch(() => {})
+  }, [])
+
+  const repliesToday = stats?.today ?? 0
+  const repliesWeek = stats?.week ?? 0
+  const target = 10
+
+  const items = [
+    { label: '2-3 alpha поста (рефки)', done: false, href: '/referrals' },
+    { label: `${repliesToday}/${target} replies`, done: repliesToday >= target, href: '/referrals' },
+    { label: 'Проверить /scoring → Detected', done: false, href: '/scoring' },
+  ]
+
+  return (
+    <GlassCard className="border-l-4 border-l-cyan-500 bg-cyan-500/5" glowOnHover={false}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-cyan-400 font-mono">X GROWTH CHECKLIST</p>
+        <div className="flex items-center gap-3 text-[11px] text-text-muted">
+          <span>replies today: <span className={repliesToday >= target ? 'text-green-400' : 'text-text-primary'}>{repliesToday}</span>/{target}</span>
+          <span>week: {repliesWeek}</span>
+          {repliesToday >= target && <span className="text-green-400">🔥</span>}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <a
+            key={i}
+            href={item.href}
+            className="flex items-center gap-2 text-sm text-text-secondary hover:text-cyan-400 transition-colors"
+          >
+            <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${
+              item.done
+                ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                : 'border-white/20'
+            }`}>
+              {item.done ? '✓' : ''}
+            </span>
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </GlassCard>
   )
 }

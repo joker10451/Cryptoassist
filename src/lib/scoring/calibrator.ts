@@ -75,7 +75,7 @@ export async function calibrateWeights(opts: { dryRun?: boolean } = {}): Promise
   const { dryRun = false } = opts
 
   // Берём только resolved outcomes
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('scoring_outcomes')
     .select('airdrop_happened, real_outcome_value_usd, breakdown')
     .not('resolved_at', 'is', null)
@@ -164,9 +164,9 @@ export async function calibrateWeights(opts: { dryRun?: boolean } = {}): Promise
 
   // Сохраняем как новый активный набор: сначала снимаем старый active,
   // потом ставим новый. Не атомарно, но допустимо для калибровки.
-  await (supabase as any).from('scoring_weights').update({ active: false }).eq('active', true)
-  const { error: insErr } = await (supabase as any).from('scoring_weights').insert({
-    weights: normalized,
+  await supabase.from('scoring_weights').update({ active: false }).eq('active', true)
+  const { error: insErr } = await supabase.from('scoring_weights').insert({
+    weights: normalized as unknown as import('@/types/database').Json,
     active: true,
     notes: `auto-calibrated from ${rows.length} outcomes`,
     calibrated_from: rows.length,

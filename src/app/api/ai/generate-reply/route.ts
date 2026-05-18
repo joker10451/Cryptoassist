@@ -88,23 +88,49 @@ ${post}
     }
 
     const data = await response.json()
-    const content: string = data.choices?.[0]?.message?.content || '{}'
+    const content: string = data.choices?.[0]?.message?.content || ''
     const clean = content.replace(/```json/g, '').replace(/```/g, '').trim()
-    const m = clean.match(/\{[\s\S]*\}/)
-    if (!m) {
-      return NextResponse.json({ error: 'AI вернул невалидный ответ' }, { status: 502 })
+
+    let replies: string[] = []
+
+    // Пробуем как {replies:[...]}
+    const objMatch = clean.match(/\{[\s\S]*\}/)
+    if (objMatch) {
+      try {
+        const parsed = JSON.parse(objMatch[0])
+        if (Array.isArray(parsed.replies)) {
+          replies = parsed.replies.filter((r: unknown) => typeof r === 'string' && r.length > 5)
+        }
+      } catch { /* fallthrough */ }
     }
 
-    const parsed = JSON.parse(m[0])
-    const replies: string[] = Array.isArray(parsed.replies)
-      ? parsed.replies.filter((r: unknown) => typeof r === 'string' && r.length > 5).slice(0, 3)
-      : []
+    // Пробуем как голый массив ["...", "...", "..."]
+    if (replies.length === 0) {
+      const arrMatch = clean.match(/\[[\s\S]*\]/)
+      if (arrMatch) {
+        try {
+          const arr = JSON.parse(arrMatch[0])
+          if (Array.isArray(arr)) {
+            replies = arr.filter((r: unknown) => typeof r === 'string' && r.length > 5)
+          }
+        } catch { /* fallthrough */ }
+      }
+    }
+
+    // Последний fallback: разбиваем по нумерации "1.", "2.", "3."
+    if (replies.length === 0 && clean.length > 20) {
+      const lines = clean.split(/\n\s*\d+[\.\)]\s*/).filter((l) => l.trim().length > 10)
+      if (lines.length >= 2) {
+        replies = lines.slice(0, 3).map((l) => l.trim().replace(/^["']|["']$/g, ''))
+      }
+    }
 
     if (replies.length === 0) {
-      return NextResponse.json({ error: 'AI не сгенерировал ответы' }, { status: 502 })
+      console.warn('[generate-reply] unparseable response:', clean.slice(0, 300))
+      return NextResponse.json({ error: 'AI вернул невалидный ответ, попробуй ещё раз' }, { status: 502 })
     }
 
-    return NextResponse.json({ replies })
+    return NextResponse.json({ replies: replies.slice(0, 3) })
   } catch (err: unknown) {
     const e = err as { name?: string; message?: string }
     if (e?.name === 'AbortError' || e?.message === 'Timeout') {

@@ -165,8 +165,8 @@ export async function POST(req: NextRequest) {
       detected_narratives: enrichment.detected_narratives,
       // Совместимость со старым клиентом: ai/page.tsx ждёт probability/estimatedRewardMin/...
       probability: finalBreakdown.final_score,
-      estimatedRewardMin: 100,
-      estimatedRewardMax: 5000,
+      estimatedRewardMin: body.funding_amount ? Math.round(body.funding_amount * 0.001) : 100,
+      estimatedRewardMax: body.funding_amount ? Math.round(body.funding_amount * 0.01) : 5000,
       riskLevel: Math.round(finalBreakdown.risk / 10),
       popularity: finalBreakdown.market_momentum >= 60 ? 'high' : finalBreakdown.market_momentum >= 30 ? 'medium' : 'low',
       summary: enrichment.alpha_summary,

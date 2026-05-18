@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 /**
  * GET /api/referrals
@@ -33,7 +32,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'project_id required' }, { status: 400 })
     }
 
-    const update: Record<string, unknown> = {}
+    const update: { referral_url?: string | null; referral_code?: string | null; referral_notes?: string | null } = {}
     if (referral_url !== undefined) update.referral_url = referral_url || null
     if (referral_code !== undefined) update.referral_code = referral_code || null
     if (referral_notes !== undefined) update.referral_notes = referral_notes || null

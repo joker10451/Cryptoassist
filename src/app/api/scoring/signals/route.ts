@@ -3,8 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { isCryptoSignalRelevant } from '@/lib/scoring/engine'
 import { isInternalRequestAuthorized } from '@/lib/internalAuth'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 interface IncomingSignal {
   source: 'twitter' | 'discord' | 'rss' | 'manual'

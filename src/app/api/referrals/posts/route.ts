@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { renderTemplate, TEMPLATES, type TemplateId, twitterLength } from '@/lib/referrals/templates'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 /**
  * GET /api/referrals/posts?status=draft
@@ -124,7 +123,7 @@ export async function PATCH(req: NextRequest) {
     const { id, status, body: text, external_id, published_at } = body
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-    const update: Record<string, unknown> = {}
+    const update: { status?: string; body?: string; external_id?: string; published_at?: string } = {}
     if (status) update.status = status
     if (typeof text === 'string') update.body = text
     if (external_id) update.external_id = external_id

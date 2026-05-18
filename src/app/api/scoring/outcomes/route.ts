@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// Свежие таблицы ещё не сгенерированы в database.ts, поэтому работаем через any-cast.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 /**
  * GET /api/scoring/outcomes
@@ -44,7 +42,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'id required' }, { status: 400 })
     }
 
-    const update: Record<string, unknown> = {
+    const update: {
+      resolved_at: string
+      airdrop_happened?: boolean
+      real_outcome_value_usd?: number
+      user_farmed?: boolean
+      notes?: string
+    } = {
       resolved_at: new Date().toISOString(),
     }
     if (typeof airdrop_happened === 'boolean') update.airdrop_happened = airdrop_happened
