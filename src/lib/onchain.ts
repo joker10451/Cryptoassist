@@ -51,13 +51,25 @@ const topTokensByChain: Record<string, { address: string; symbol: string; decima
   ],
 }
 
-const clientCache = new Map<string, any>()
+type ChainName = keyof typeof chains
+type AlchemyTokenBalance = { tokenBalance: string | null; contractAddress: string }
+type AlchemyTokenMetadata = { symbol?: string | null; decimals?: number | null }
+type AlchemyPriceItem = {
+  network?: string
+  symbol?: string
+  address?: string
+  prices?: { currency?: string; value?: string }[]
+}
+
+// PublicClient generic зависит от chain — кэш храним как unknown,
+// при чтении возвращаем напрямую созданный клиент (тип выводится из createPublicClient).
+const clientCache = new Map<string, unknown>()
 
 function getClient(chainName: string) {
-  const config = chains[chainName as keyof typeof chains]
+  const config = chains[chainName as ChainName]
   if (!config) throw new Error(`Unknown chain: ${chainName}`)
   const cached = clientCache.get(chainName)
-  if (cached) return cached
+  if (cached) return cached as ReturnType<typeof createPublicClient>
   const client = createPublicClient({ chain: config.chain, transport: http(config.rpc) })
   clientCache.set(chainName, client)
   return client
@@ -116,7 +128,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null
   return Promise.race([promise, timeout])
 }
 
-async function alchemyCall(url: string, method: string, params: any[]): Promise<any> {
+async function alchemyCall<T = unknown>(url: string, method: string, params: unknown[]): Promise<T> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -125,18 +137,18 @@ async function alchemyCall(url: string, method: string, params: any[]): Promise<
   if (!res.ok) throw new Error(`Alchemy ${method} ${res.status}`)
   const data = await res.json()
   if (data.error) throw new Error(data.error.message)
-  return data.result
+  return data.result as T
 }
 
 async function getAlchemyTokens(address: string, alchemyUrl: string): Promise<TokenBalance[]> {
   try {
     const balances = await withTimeout(
-      alchemyCall(alchemyUrl, 'alchemy_getTokenBalances', [address, 'erc20']),
+      alchemyCall<{ tokenBalances?: AlchemyTokenBalance[] }>(alchemyUrl, 'alchemy_getTokenBalances', [address, 'erc20']),
       8000
     )
     if (!balances?.tokenBalances) return []
 
-    const nonZero = balances.tokenBalances.filter((t: any) => {
+    const nonZero = balances.tokenBalances.filter((t) => {
       if (!t.tokenBalance) return false
       try { return BigInt(t.tokenBalance) > BigInt(0) } catch { return false }
     })
@@ -144,18 +156,23 @@ async function getAlchemyTokens(address: string, alchemyUrl: string): Promise<To
 
     const top = nonZero.slice(0, 25)
     const metadataResults = await Promise.allSettled(
-      top.map((t: any) =>
-        withTimeout(alchemyCall(alchemyUrl, 'alchemy_getTokenMetadata', [t.contractAddress]), 4000)
-      )
+      top.map((t) =>
+        withTimeout(
+          alchemyCall<AlchemyTokenMetadata>(alchemyUrl, 'alchemy_getTokenMetadata', [t.contractAddress]),
+          4000,
+        ),
+      ),
     )
 
     const tokens: TokenBalance[] = []
     metadataResults.forEach((r, i) => {
       if (r.status !== 'fulfilled' || !r.value) return
-      const meta = r.value as { symbol?: string | null; decimals?: number | null }
+      const meta = r.value
       if (!meta.symbol || meta.decimals == null) return
+      const tokenBalance = top[i].tokenBalance
+      if (!tokenBalance) return
       try {
-        const balance = formatUnits(BigInt(top[i].tokenBalance), meta.decimals)
+        const balance = formatUnits(BigInt(tokenBalance), meta.decimals)
         if (parseFloat(balance) > 0) {
           tokens.push({ symbol: meta.symbol, balance, contractAddress: top[i].contractAddress })
         }
@@ -251,9 +268,9 @@ async function getTokenPricesUSD(
 
   for (const r of results) {
     if (r.status !== 'fulfilled' || !r.value) continue
-    const data = (r.value as { data?: any[] }).data ?? []
+    const data = (r.value as { data?: AlchemyPriceItem[] }).data ?? []
     for (const item of data) {
-      const usd = item?.prices?.find((p: any) => p?.currency === 'usd')?.value
+      const usd = item?.prices?.find((p) => p?.currency === 'usd')?.value
       if (usd && item?.address) {
         out.set(`${item.network}:${String(item.address).toLowerCase()}`, parseFloat(usd))
       }
@@ -273,9 +290,9 @@ async function getNativePricesUSD(symbols: string[]): Promise<Map<string, number
       6000
     )
     if (!res || !res.ok) return out
-    const data = await res.json()
+    const data = (await res.json()) as { data?: AlchemyPriceItem[] }
     for (const item of data?.data ?? []) {
-      const usd = item?.prices?.find((p: any) => p?.currency === 'usd')?.value
+      const usd = item?.prices?.find((p) => p?.currency === 'usd')?.value
       if (usd && item?.symbol) out.set(item.symbol, parseFloat(usd))
     }
   } catch {}

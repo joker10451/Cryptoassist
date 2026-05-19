@@ -453,11 +453,25 @@ export default function TodayPage() {
 
 function DailyBrief() {
   const [stats, setStats] = useState<{ today: number; week: number } | null>(null)
+  const [hotDetected, setHotDetected] = useState<{ name: string; slug: string; confidence: number }[]>([])
 
   useEffect(() => {
     fetch('/api/referrals/targets')
       .then((r) => r.json())
       .then((d) => setStats(d.stats ?? null))
+      .catch(() => {})
+
+    fetch('/api/scoring/detected?status=pending')
+      .then((r) => r.json())
+      .then((d) => {
+        const items = (d.detected ?? []) as { project_name: string; project_slug: string; confidence: number }[]
+        setHotDetected(
+          items
+            .filter((it) => it.confidence >= 70)
+            .slice(0, 3)
+            .map((it) => ({ name: it.project_name, slug: it.project_slug, confidence: it.confidence })),
+        )
+      })
       .catch(() => {})
   }, [])
 
@@ -468,7 +482,14 @@ function DailyBrief() {
   const items = [
     { label: '2-3 alpha поста (рефки)', done: false, href: '/referrals' },
     { label: `${repliesToday}/${target} replies`, done: repliesToday >= target, href: '/referrals' },
-    { label: 'Проверить /scoring → Detected', done: false, href: '/scoring' },
+    {
+      label:
+        hotDetected.length > 0
+          ? `${hotDetected.length} новых alpha от детектора`
+          : 'Проверить /scoring → Detected',
+      done: false,
+      href: '/scoring',
+    },
   ]
 
   return (
@@ -478,7 +499,7 @@ function DailyBrief() {
         <div className="flex items-center gap-3 text-[11px] text-text-muted">
           <span>replies today: <span className={repliesToday >= target ? 'text-green-400' : 'text-text-primary'}>{repliesToday}</span>/{target}</span>
           <span>week: {repliesWeek}</span>
-          {repliesToday >= target && <span className="text-green-400">🔥</span>}
+          {repliesToday >= target && <span className="text-green-400">🔥 streak</span>}
         </div>
       </div>
       <div className="space-y-1.5">
@@ -499,6 +520,23 @@ function DailyBrief() {
           </a>
         ))}
       </div>
+
+      {hotDetected.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-white/5">
+          <p className="text-[10px] text-text-muted mb-1.5 font-mono">HOT FROM DETECTOR</p>
+          <div className="flex flex-wrap gap-1.5">
+            {hotDetected.map((d) => (
+              <a
+                key={d.slug}
+                href="/scoring"
+                className="text-[11px] px-2 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/30 text-purple-300 hover:bg-purple-500/20 transition-colors"
+              >
+                {d.name} <span className="text-purple-400/60">{d.confidence}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </GlassCard>
   )
 }

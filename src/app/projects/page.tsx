@@ -48,6 +48,7 @@ export default function ProjectsPage() {
   const [enrichSummary, setEnrichSummary] = useState<string | null>(null)
   const [rescoreStatus, setRescoreStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [rescoreSummary, setRescoreSummary] = useState<string | null>(null)
+  const [refOnly, setRefOnly] = useState(false)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -179,7 +180,8 @@ export default function ProjectsPage() {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       project.description?.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = filterCategory === 'all' || project.category === filterCategory
-    return matchesSearch && matchesCategory
+    const matchesRef = !refOnly || (project.referral_url && project.referral_url.trim().length > 0)
+    return matchesSearch && matchesCategory && matchesRef
   })
 
   if (loading) {
@@ -349,6 +351,17 @@ export default function ProjectsPage() {
               {categoryLabels[cat]}
             </button>
           ))}
+          <button
+            onClick={() => setRefOnly((v) => !v)}
+            title="Показать только проекты с реферальной ссылкой"
+            className={`px-3 py-2 rounded-lg text-xs font-mono whitespace-nowrap ${
+              refOnly
+                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                : 'bg-bg-tertiary text-text-muted border border-white/10 hover:text-text-primary'
+            }`}
+          >
+            REF
+          </button>
         </div>
       </div>
 
