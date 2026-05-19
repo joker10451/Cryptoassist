@@ -26,6 +26,7 @@ import {
   type GitHubRepoMomentum,
 } from './github'
 import {
+  getFundingRoundsBySlug,
   searchFundingRounds,
   aggregateFunding,
 } from './dropstab'
@@ -184,19 +185,32 @@ export async function enrichProject(input: EnrichInput): Promise<EnrichmentResul
   // 4. Funding: DropsTab (primary) → DefiLlama raises (fallback, paywalled).
   let raisesAgg = { total_usd: 0, investors: [] as string[], rounds: 0 }
   try {
-    // DropsTab first
-    const dtRounds = await searchFundingRounds(name)
+    // DropsTab: пробуем точный slug проекта (использует наш slug или CoinGecko id),
+    // потом fuzzy-search по имени.
+    const candidateSlugs = [slug, cg?.id, name.toLowerCase().replace(/\s+/g, '-')].filter(
+      (s): s is string => typeof s === 'string' && s.length > 0,
+    )
+    let dtRounds: Awaited<ReturnType<typeof getFundingRoundsBySlug>> = []
+    for (const s of candidateSlugs) {
+      dtRounds = await getFundingRoundsBySlug(s)
+      if (dtRounds.length > 0) break
+    }
+    if (dtRounds.length === 0) {
+      dtRounds = await searchFundingRounds(name)
+    }
+
     if (dtRounds.length > 0) {
+      const agg = aggregateFunding(dtRounds)
       raisesAgg = {
-        total_usd: aggregateFunding(dtRounds).total_usd,
-        investors: aggregateFunding(dtRounds).investors,
+        total_usd: agg.total_usd,
+        investors: agg.investors,
         rounds: dtRounds.length,
       }
       notes.push(
-        `dropstab: ${dtRounds.length} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M, ${raisesAgg.investors.length} investors`,
+        `dropstab: ${dtRounds.length} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M, ${raisesAgg.investors.length} investors${agg.top_tier_count > 0 ? `, ${agg.top_tier_count} tier-1` : ''}`,
       )
     } else {
-      // Fallback: DefiLlama (likely paywalled)
+      // Fallback: DefiLlama (paywalled)
       const raises = await findRaises(name, dl?.id)
       raisesAgg = aggregateRaises(raises)
       if (raisesAgg.rounds > 0) {
@@ -204,7 +218,7 @@ export async function enrichProject(input: EnrichInput): Promise<EnrichmentResul
           `defillama-raises: ${raisesAgg.rounds} rounds, $${(raisesAgg.total_usd / 1e6).toFixed(1)}M`,
         )
       } else {
-        notes.push('funding: no data (DropsTab empty, DefiLlama paywalled)')
+        notes.push('funding: no data')
       }
     }
   } catch (err) {

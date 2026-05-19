@@ -1,23 +1,30 @@
 /**
- * DropsTab API client (Builders Program).
+ * DropsTab API client (Builders Program / Advanced plan).
  *
- * Endpoints:
- *   GET /coins — list/search coins
- *   GET /coins/{id} — coin detail
- *   GET /fundingRounds — funding rounds with investors
- *   GET /tokenUnlocks/overview — upcoming unlocks
- *   GET /activities — airdrops, listings, partnerships
- *
- * Auth: x-api-key header.
- * Rate: ~500 req/day (Builders plan).
+ * Host: public-api.dropstab.com
+ * Auth: x-dropstab-api-key header
+ * Format: { status, data: { content: [...], totalSize, ... }, failure, failureDetails }
+ * Rate: 500k requests / 30 days.
  */
 
 const BASE = 'https://public-api.dropstab.com/api/v1'
 const API_KEY = () => process.env.DROPSTAB_API_KEY || ''
 
-async function dtFetch<T>(path: string, timeoutMs = 12000): Promise<T | null> {
+interface PageEnvelope<T> {
+  status: string
+  failure: boolean
+  failureDetails: unknown
+  data?: {
+    content?: T[]
+    totalSize?: number
+    pageSize?: number
+    currentPage?: number
+  }
+}
+
+async function dtFetch<T>(path: string, timeoutMs = 12000): Promise<T[]> {
   const key = API_KEY()
-  if (!key) return null
+  if (!key) return []
 
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), timeoutMs)
@@ -33,134 +40,109 @@ async function dtFetch<T>(path: string, timeoutMs = 12000): Promise<T | null> {
       if (process.env.NODE_ENV !== 'production') {
         console.warn(`[dropstab] ${res.status} ${path}`)
       }
-      return null
+      return []
     }
-    return (await res.json()) as T
+    const env = (await res.json()) as PageEnvelope<T>
+    return env.data?.content ?? []
   } catch {
-    return null
+    return []
   } finally {
     clearTimeout(id)
   }
 }
 
+// --- Coin search -----------------------------------------------------------
+
+export interface DropstabCoin {
+  id: number | string
+  name?: string
+  symbol?: string
+  slug?: string
+  rank?: number
+  image?: string
+  trading?: string
+}
+
+/** Поиск по name/symbol/slug. */
+export async function searchCoins(query: string): Promise<DropstabCoin[]> {
+  return dtFetch<DropstabCoin>(`/coins/search?query=${encodeURIComponent(query)}&size=10`)
+}
+
 // --- Funding Rounds --------------------------------------------------------
 
+interface DropstabInvestor {
+  id?: number
+  name?: string
+  investorSlug?: string
+  ventureType?: string
+  tier?: string
+  lead?: boolean
+}
+
 export interface FundingRound {
-  id: string | number
-  projectName?: string
-  projectSlug?: string
-  roundType?: string
-  amount?: number // USD
+  id: number
+  coinSlug?: string
+  coinSymbol?: string
+  fundsRaised?: number
+  preValuation?: number
+  preValuationInaccurate?: boolean
+  stage?: string
+  investors?: DropstabInvestor[]
+  twitterPerformance?: number | null
+  category?: string | null
   date?: string
-  leadInvestors?: string[]
-  investors?: string[]
-  valuation?: number
 }
 
-interface FundingResponse {
-  data?: FundingRound[]
-  items?: FundingRound[]
-}
-
-export async function searchFundingRounds(projectName: string): Promise<FundingRound[]> {
-  const data = await dtFetch<FundingResponse>(
-    `/fundingRounds?search=${encodeURIComponent(projectName)}&limit=10`,
+/**
+ * Получить раунды финансирования по точному slug проекта (например "monad").
+ * Если slug неизвестен — используй searchCoins() и возьми поле slug.
+ */
+export async function getFundingRoundsBySlug(coinSlug: string): Promise<FundingRound[]> {
+  if (!coinSlug) return []
+  return dtFetch<FundingRound>(
+    `/fundingRounds?coinSlug=${encodeURIComponent(coinSlug)}&size=50`,
   )
-  return data?.data ?? data?.items ?? []
+}
+
+/**
+ * Fuzzy-search раундов по имени проекта (через ?search=).
+ * Менее точный — может вернуть нерелевантные совпадения.
+ */
+export async function searchFundingRounds(name: string): Promise<FundingRound[]> {
+  return dtFetch<FundingRound>(`/fundingRounds?search=${encodeURIComponent(name)}&size=20`)
 }
 
 export function aggregateFunding(rounds: FundingRound[]): {
   total_usd: number
   investors: string[]
   rounds_count: number
+  top_tier_count: number
 } {
   let total = 0
   const investors = new Set<string>()
+  let topTier = 0
   for (const r of rounds) {
-    if (typeof r.amount === 'number') total += r.amount
-    for (const i of r.leadInvestors ?? []) if (i) investors.add(i.trim())
-    for (const i of r.investors ?? []) if (i) investors.add(i.trim())
+    if (typeof r.fundsRaised === 'number') total += r.fundsRaised
+    for (const i of r.investors ?? []) {
+      if (i?.name) investors.add(i.name.trim())
+      if (i?.tier === 'Tier 1') topTier++
+    }
   }
-  return { total_usd: total, investors: Array.from(investors), rounds_count: rounds.length }
+  return {
+    total_usd: total,
+    investors: Array.from(investors),
+    rounds_count: rounds.length,
+    top_tier_count: topTier,
+  }
 }
 
-// --- Token Unlocks ---------------------------------------------------------
+// --- Health check ----------------------------------------------------------
 
-export interface TokenUnlock {
-  id: string | number
-  projectName?: string
-  tokenSymbol?: string
-  unlockDate?: string
-  amount?: number
-  percentOfSupply?: number
-  type?: string
-}
-
-interface UnlocksResponse {
-  data?: TokenUnlock[]
-  items?: TokenUnlock[]
-}
-
-export async function getUpcomingUnlocks(limit = 20): Promise<TokenUnlock[]> {
-  const data = await dtFetch<UnlocksResponse>(`/tokenUnlocks/overview?limit=${limit}`)
-  return data?.data ?? data?.items ?? []
-}
-
-// --- Activities (airdrops, listings, etc) ----------------------------------
-
-export interface CryptoActivity {
-  id: string | number
-  projectName?: string
-  type?: string // airdrop, listing, partnership, upgrade, etc
-  title?: string
-  description?: string
-  date?: string
-  status?: string
-}
-
-interface ActivitiesResponse {
-  data?: CryptoActivity[]
-  items?: CryptoActivity[]
-}
-
-export async function getActivities(opts: {
-  status?: 'upcoming' | 'active' | 'ended'
-  limit?: number
-} = {}): Promise<CryptoActivity[]> {
-  const params = new URLSearchParams()
-  if (opts.status) params.set('status', opts.status)
-  params.set('limit', String(opts.limit ?? 20))
-  const data = await dtFetch<ActivitiesResponse>(`/activities?${params.toString()}`)
-  return data?.data ?? data?.items ?? []
-}
-
-// --- Coin search -----------------------------------------------------------
-
-export interface DropstabCoin {
-  id: string | number
-  name?: string
-  symbol?: string
-  slug?: string
-}
-
-interface CoinsResponse {
-  data?: DropstabCoin[]
-  items?: DropstabCoin[]
-}
-
-export async function searchCoins(query: string): Promise<DropstabCoin[]> {
-  const data = await dtFetch<CoinsResponse>(`/coins?search=${encodeURIComponent(query)}&limit=5`)
-  return data?.data ?? data?.items ?? []
-}
-
-/**
- * Проверка доступности API (health check).
- */
 export async function isDropstabAvailable(): Promise<boolean> {
   const key = API_KEY()
   if (!key) return false
   try {
-    const res = await fetch(`${BASE}/coins?limit=1`, {
+    const res = await fetch(`${BASE}/coins/supported?size=1`, {
       headers: { 'x-dropstab-api-key': key, Accept: 'application/json' },
     })
     return res.ok
