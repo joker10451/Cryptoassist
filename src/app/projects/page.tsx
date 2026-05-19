@@ -62,12 +62,12 @@ export default function ProjectsPage() {
   const handleDiscover = async () => {
     setDiscovering(true)
     try {
-      const res = await fetch('/api/projects/discover')
+      const res = await fetch('/api/projects/auto-discover', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        setDiscoveredCount(data.savedCount)
+        setDiscoveredCount(data.added ?? 0)
         refresh()
-        setTimeout(() => setDiscoveredCount(0), 3000)
+        setTimeout(() => setDiscoveredCount(0), 4000)
       }
     } catch (e) {
       console.error('Discover error:', e)
