@@ -17,6 +17,21 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 100
   }
 }
 
+interface RawParsedTask {
+  title?: unknown
+  type?: unknown
+  description?: unknown
+  deadline?: unknown
+  difficulty?: unknown
+}
+
+interface RawParsed {
+  project?: unknown
+  tasks?: unknown
+  estimatedTime?: unknown
+  estimatedCost?: unknown
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { text } = await req.json()
@@ -64,10 +79,8 @@ Return ONLY JSON.`
 
     const data = await response.json()
     const content = data.choices?.[0]?.message?.content || '{}'
-    
-    console.log('AI Raw:', content.substring(0, 200))
 
-    let parsed
+    let parsed: RawParsed
     try {
       const clean = content.replace(/```json/g, '').replace(/```/g, '').trim()
       const jsonMatch = clean.match(/\{[\s\S]*\}/)
@@ -76,23 +89,25 @@ Return ONLY JSON.`
       parsed = { project: 'Неизвестно', tasks: [], estimatedTime: 30, estimatedCost: 0 }
     }
 
+    const rawTasks: RawParsedTask[] = Array.isArray(parsed.tasks) ? parsed.tasks : []
     const result = {
-      project: parsed.project || 'Неизвестно',
-      tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map((t: any) => ({
-        title: t.title || 'Задача',
-        type: t.type || 'custom',
-        description: t.description || '',
-        deadline: t.deadline || null,
-        difficulty: Math.min(5, Math.max(1, t.difficulty || 3)),
-      })) : [],
+      project: typeof parsed.project === 'string' ? parsed.project : 'Неизвестно',
+      tasks: rawTasks.map((t) => ({
+        title: typeof t.title === 'string' ? t.title : 'Задача',
+        type: typeof t.type === 'string' ? t.type : 'custom',
+        description: typeof t.description === 'string' ? t.description : '',
+        deadline: typeof t.deadline === 'string' ? t.deadline : null,
+        difficulty: Math.min(5, Math.max(1, Number(t.difficulty) || 3)),
+      })),
       estimatedTime: typeof parsed.estimatedTime === 'number' ? parsed.estimatedTime : 30,
       estimatedCost: typeof parsed.estimatedCost === 'number' ? parsed.estimatedCost : 0,
     }
 
     void saveCachedAnalysis('parse_tasks', cacheKey, { text_preview: text.slice(0, 200) }, result)
     return NextResponse.json(result)
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
+  } catch (error: unknown) {
+    const e = error as { name?: string }
+    if (e.name === 'AbortError') {
       return NextResponse.json({ error: 'Таймаут AI' }, { status: 504 })
     }
     console.error('Parse error:', error)

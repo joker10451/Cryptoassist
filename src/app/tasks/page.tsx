@@ -188,8 +188,8 @@ export default function TasksPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-text-muted">{(task as any).projects?.name || 'Неизвестно'}</span>
-                      <Badge variant={info.color as any}>{typeLabels[task.task_type] || task.task_type}</Badge>
+                      <span className="text-xs text-text-muted">{task.projects?.name || 'Неизвестно'}</span>
+                      <Badge variant={info.color as 'green' | 'cyan' | 'yellow' | 'red' | 'purple'}>{typeLabels[task.task_type] || task.task_type}</Badge>
                       {task.deadline && (
                         <span className="text-xs text-yellow-400 flex items-center gap-1">
                           <Clock size={10} />

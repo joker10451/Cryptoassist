@@ -65,8 +65,9 @@ export async function POST(req: NextRequest) {
 
     void saveCachedAnalysis('analyze_wallet', cacheKey, { address }, parsed)
     return NextResponse.json(parsed)
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
+  } catch (error: unknown) {
+    const e = error as { name?: string }
+    if (e.name === 'AbortError') {
       return NextResponse.json({ error: 'AI сервис не отвечает (таймаут)' }, { status: 504 })
     }
     console.error('Analyze wallet error:', error)

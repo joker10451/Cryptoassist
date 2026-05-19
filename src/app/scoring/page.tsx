@@ -431,6 +431,7 @@ function OutcomesTab() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('open')
+  const [bulkBusy, setBulkBusy] = useState<'hit' | 'miss' | null>(null)
 
   async function load() {
     setLoading(true)
@@ -470,6 +471,31 @@ function OutcomesTab() {
     }
   }
 
+  async function bulkResolve(action: 'hit' | 'miss') {
+    const open = items.filter((o) => !o.resolved_at)
+    if (open.length === 0) return
+    if (!confirm(`Закрыть ${open.length} прогнозов как ${action === 'hit' ? 'hit' : 'miss'}?`)) return
+    setBulkBusy(action)
+    try {
+      await Promise.all(
+        open.map((o) =>
+          fetch('/api/scoring/outcomes', {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              id: o.id,
+              airdrop_happened: action === 'hit',
+              user_farmed: action === 'hit' ? true : undefined,
+            }),
+          }),
+        ),
+      )
+      await load()
+    } finally {
+      setBulkBusy(null)
+    }
+  }
+
   const openCount = items.filter((o) => !o.resolved_at).length
   const resolvedCount = items.length - openCount
   const hits = items.filter((o) => o.airdrop_happened === true).length
@@ -497,7 +523,7 @@ function OutcomesTab() {
       </div>
 
       <GlassCard>
-        <div className="flex items-center gap-1 mb-3">
+        <div className="flex items-center gap-1 mb-3 flex-wrap">
           {(['open', 'resolved', 'all'] as const).map((f) => (
             <button
               key={f}
@@ -511,6 +537,26 @@ function OutcomesTab() {
               {f}
             </button>
           ))}
+          {filter === 'open' && openCount > 0 && (
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                onClick={() => bulkResolve('hit')}
+                disabled={bulkBusy !== null}
+                className="px-2 py-1 text-[11px] rounded bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/25 transition-colors disabled:opacity-50"
+                title={`Закрыть все ${openCount} как hit`}
+              >
+                {bulkBusy === 'hit' ? '...' : `все hit (${openCount})`}
+              </button>
+              <button
+                onClick={() => bulkResolve('miss')}
+                disabled={bulkBusy !== null}
+                className="px-2 py-1 text-[11px] rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                title={`Закрыть все ${openCount} как miss`}
+              >
+                {bulkBusy === 'miss' ? '...' : `все miss (${openCount})`}
+              </button>
+            </div>
+          )}
           <span className="text-xs text-text-muted ml-auto">
             resolved: {resolvedCount} (нужно ≥ 8 для калибровки)
           </span>

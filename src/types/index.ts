@@ -86,6 +86,8 @@ export interface Task {
   difficulty: number;
   estimated_time_minutes: number | null;
   created_at: string;
+  /** Joined from projects when selected via `select('*, projects(name)')`. */
+  projects?: { name: string } | null;
 }
 
 export interface UserTask {
