@@ -49,6 +49,7 @@ export default function ProjectsPage() {
   const [rescoreStatus, setRescoreStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [rescoreSummary, setRescoreSummary] = useState<string | null>(null)
   const [refOnly, setRefOnly] = useState(false)
+  const [sortBy, setSortBy] = useState<'score' | 'funding' | 'created' | 'name'>('score')
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -176,13 +177,27 @@ export default function ProjectsPage() {
     }
   }
 
-  const filteredProjects = projects.filter((project) => {
-    const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      project.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = filterCategory === 'all' || project.category === filterCategory
-    const matchesRef = !refOnly || (project.referral_url && project.referral_url.trim().length > 0)
-    return matchesSearch && matchesCategory && matchesRef
-  })
+  const filteredProjects = projects
+    .filter((project) => {
+      const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        project.description?.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesCategory = filterCategory === 'all' || project.category === filterCategory
+      const matchesRef = !refOnly || (project.referral_url && project.referral_url.trim().length > 0)
+      return matchesSearch && matchesCategory && matchesRef
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'funding':
+          return (b.funding_amount ?? 0) - (a.funding_amount ?? 0)
+        case 'created':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        case 'name':
+          return a.name.localeCompare(b.name)
+        case 'score':
+        default:
+          return (b.probability_score ?? 0) - (a.probability_score ?? 0)
+      }
+    })
 
   if (loading) {
     return (
@@ -362,6 +377,17 @@ export default function ProjectsPage() {
           >
             REF
           </button>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'score' | 'funding' | 'created' | 'name')}
+            className="px-3 py-2 rounded-lg text-xs font-mono whitespace-nowrap bg-bg-tertiary text-text-muted border border-white/10 hover:text-text-primary focus:outline-none focus:border-cyan-500/50"
+            title="Сортировка"
+          >
+            <option value="score">SCORE ↓</option>
+            <option value="funding">FUNDING ↓</option>
+            <option value="created">NEWEST ↓</option>
+            <option value="name">NAME A-Z</option>
+          </select>
         </div>
       </div>
 
