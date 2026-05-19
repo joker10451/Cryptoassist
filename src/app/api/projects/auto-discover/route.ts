@@ -1,175 +1,235 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { enrichProject } from '@/lib/enrichment/enrich'
+import { scoreProject } from '@/lib/scoring/engine'
+import { getActiveWeights, getHotNarratives } from '@/lib/scoring/state'
+import type { TokenStatus } from '@/lib/scoring/types'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || ''
+/**
+ * POST /api/projects/auto-discover
+ *
+ * Полный pipeline «найти → обогатить → пересчитать»:
+ *  1. Тянем активные проекты из AlphaDrops (как /api/projects/discover-referrals)
+ *  2. Для новых добавленных — синхронно прогоняем enrichProject (CoinGecko + DefiLlama + GitHub + DropsTab),
+ *     с задержкой между, чтобы не упереться в rate limits.
+ *  3. Считаем v2 score (без AI, дешёво) и сохраняем.
+ *
+ * Возвращаем сводку для UI.
+ */
 
-const TRENDING_PROJECTS = [
-  { name: 'MegaETH', description: 'Real-time L2 blockchain. Raised $100M. Backed by Vitalik, Paradigm.', category: 'layer2', ecosystem: 'ethereum', website: 'https://megaeth.com', twitter: 'https://twitter.com/MegaETH_L2', funding: 100000000, investors: ['Paradigm', 'Vitalik'] },
-  { name: 'Berachain', description: 'L1 with Proof-of-Liquidity consensus. Raised $100M from Polychain, Hack VC.', category: 'layer1', ecosystem: 'berachain', website: 'https://berachain.com', twitter: 'https://twitter.com/berachain', funding: 100000000, investors: ['Polychain', 'Hack VC'] },
-  { name: 'Hyperlane', description: 'Interoperability protocol for cross-chain messaging. Raised $20M from a16z.', category: 'infra', ecosystem: 'multi-chain', website: 'https://hyperlane.xyz', twitter: 'https://twitter.com/Hyperlane_xyz', funding: 20000000, investors: ['a16z', 'Polychain'] },
-  { name: 'Scroll', description: 'zkEVM Layer 2 scaling solution for Ethereum. Raised $80M.', category: 'layer2', ecosystem: 'ethereum', website: 'https://scroll.io', twitter: 'https://twitter.com/Scroll_ZKP', funding: 80000000, investors: ['Polychain', 'Bain Capital'] },
-  { name: 'Initia', description: 'Network for interwoven rollups. Raised $12M from Binance Labs.', category: 'infra', ecosystem: 'cosmos', website: 'https://initia.xyz', twitter: 'https://twitter.com/initia_xyz', funding: 12000000, investors: ['Binance Labs', 'Delphi Digital'] },
-  { name: 'Fuel Network', description: 'Modular execution layer with parallel execution. Raised $27.5M.', category: 'layer2', ecosystem: 'ethereum', website: 'https://fuel.network', twitter: 'https://twitter.com/FuelLabs_', funding: 27500000, investors: ['Blockchain Capital', 'Fabric Ventures'] },
-  { name: 'Aztec Network', description: 'Privacy-focused zkEVM Layer 2. Raised $100M from a16z, Paradigm.', category: 'layer2', ecosystem: 'ethereum', website: 'https://aztec.network', twitter: 'https://twitter.com/aztecnetwork', funding: 100000000, investors: ['a16z', 'Paradigm'] },
-]
+const ALPHADROPS_URL = 'https://alphadrops.net/api/airdrops?status=active&limit=50'
+const ENRICH_DELAY_MS = 6500
 
-async function generateTasks(project: any): Promise<any[]> {
-  try {
-    const prompt = `Generate 5-8 farming tasks for crypto project "${project.name}" (${project.category}).
-
-Include: social tasks (Discord, Twitter), onchain tasks (bridge, swap, stake), quests (Galxe, Layer3), testnet if available.
-
-Return ONLY JSON array:
-[{"title":"Task","type":"discord|social|bridge|swap|stake|mint|testnet|quest","description":"Description","difficulty":1-5}]`
-
-    const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'meta/llama-3.1-8b-instruct',
-        messages: [
-          { role: 'system', content: 'Return ONLY JSON array. No markdown.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 512,
-      }),
-    })
-
-    if (!res.ok) return []
-
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content || '[]'
-    const clean = content.replace(/```json/g, '').replace(/```/g, '').trim()
-    const jsonMatch = clean.match(/\[[\s\S]*\]/)
-    return jsonMatch ? JSON.parse(jsonMatch[0]) : []
-  } catch {
-    return []
-  }
+interface AlphaProject {
+  name: string
+  slug: string
+  categories: string[]
+  blockchains: string[]
+  shortDescription: string
+  fundingAmount: string | null
+  isFreeAccess: boolean
+  hasPoints: boolean
+  status: string
+  website: string | null
+  socialTwitter: string | null
+  tasks: { title: string; description: string; link: string | null }[]
 }
 
-async function checkExisting(slug: string): Promise<boolean> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/projects?slug=eq.${slug}&select=id`, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-  })
-  const data = await res.json()
-  return data.length > 0
+function mapCategory(cats: string[]): string {
+  const all = cats.map((c) => c.toLowerCase())
+  if (all.some((c) => c.includes('depin'))) return 'depin'
+  if (all.some((c) => c.includes('l1') || c.includes('network'))) return 'layer1'
+  if (all.some((c) => c.includes('l2'))) return 'layer2'
+  if (all.some((c) => c.includes('defi') || c.includes('dex') || c.includes('perps'))) return 'defi'
+  if (all.some((c) => c.includes('nft'))) return 'nft'
+  if (all.some((c) => c.includes('gam'))) return 'gaming'
+  if (all.some((c) => c.includes('ai'))) return 'infra'
+  if (all.some((c) => c.includes('infra'))) return 'infra'
+  return 'other'
 }
 
-async function insertProject(project: any, slug: string) {
-  const body = {
-    name: project.name,
-    slug,
-    description: project.description,
-    category: project.category,
-    ecosystem: project.ecosystem,
-    website_url: project.website,
-    twitter_url: project.twitter,
-    funding_amount: project.funding,
-    investors: project.investors,
-    probability_score: Math.floor(Math.random() * 25) + 65,
-    estimated_reward_min: Math.floor(Math.random() * 200) + 100,
-    estimated_reward_max: Math.floor(Math.random() * 2000) + 500,
-    risk_score: Math.floor(Math.random() * 3) + 3,
-    token_status: 'no_token',
-  }
+function parseFunding(s: string | null): number | null {
+  if (!s || s === 'NA' || s === 'TBA') return null
+  const m = s.match(/\$([\d.]+)M/i)
+  if (m) return Math.round(parseFloat(m[1]) * 1_000_000)
+  const k = s.match(/\$([\d.]+)K/i)
+  if (k) return Math.round(parseFloat(k[1]) * 1_000)
+  return null
+}
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/projects`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(body),
-  })
+function mapTaskType(title: string): string {
+  const t = title.toLowerCase()
+  if (t.includes('bridge')) return 'bridge'
+  if (t.includes('swap') || t.includes('trade')) return 'swap'
+  if (t.includes('stake') || t.includes('deposit')) return 'stake'
+  if (t.includes('mint') || t.includes('nft')) return 'mint'
+  if (t.includes('discord') || t.includes('community') || t.includes('join')) return 'social'
+  if (t.includes('testnet') || t.includes('faucet')) return 'testnet'
+  if (t.includes('quest') || t.includes('galxe') || t.includes('campaign')) return 'quest'
+  return 'quest'
+}
 
-  if (!res.ok) {
-    const error = await res.text()
-    return { error, status: res.status }
-  }
-
-  return await res.json()
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 export async function POST() {
   try {
+    const res = await fetch(ALPHADROPS_URL, { next: { revalidate: 0 } })
+    if (!res.ok) {
+      return NextResponse.json({ error: `AlphaDrops API: ${res.status}` }, { status: 502 })
+    }
+
+    const all = (await res.json()) as AlphaProject[]
+    const candidates = all.filter(
+      (p) => p.status === 'active' && (p.hasPoints || p.isFreeAccess),
+    )
+
     let added = 0
-    let skipped = 0
-    const errors: string[] = []
-    const newProjects: any[] = []
+    let existing = 0
+    let tasksAdded = 0
+    const newProjectIds: { id: string; slug: string; name: string }[] = []
 
-    for (const project of TRENDING_PROJECTS) {
-      const slug = project.name.toLowerCase().replace(/[^a-z0-9]/g, '-')
+    // 1. Discover & insert
+    for (const p of candidates) {
+      const slug = p.slug.toLowerCase().replace(/[^a-z0-9-]/g, '')
+      const category = mapCategory(p.categories)
+      const funding = parseFunding(p.fundingAmount)
+      const ecosystem = (p.blockchains?.[0] ?? 'multi').toLowerCase()
 
-      const exists = await checkExisting(slug)
-      if (exists) {
-        skipped++
+      const { data: ex } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('slug', slug)
+        .maybeSingle()
+
+      if (ex) {
+        existing++
         continue
       }
 
-      const result = await insertProject(project, slug)
-      if ('error' in result) {
-        errors.push(`${project.name}: ${result.error}`)
-      } else {
-        added++
-        const projectId = result[0]?.id
-        const projectName = result[0]?.name || project.name
-        const probability = result[0]?.probability_score
+      const { data: created, error: insErr } = await supabase
+        .from('projects')
+        .insert({
+          slug,
+          name: p.name,
+          category,
+          ecosystem,
+          description: p.shortDescription || null,
+          token_status: 'no_token',
+          probability_score: p.hasPoints ? 65 : 55,
+          farming_difficulty: 3,
+          risk_score: 3,
+          farming_cost: 0,
+          funding_amount: funding,
+          website_url: p.website || null,
+          twitter_url: p.socialTwitter || null,
+          status: 'active',
+          snapshot_status: 'unknown',
+        })
+        .select('id, slug, name')
+        .single()
 
-        // Генерируем задачи для нового проекта
-        const tasks = await generateTasks(project)
-        let tasksSaved = 0
-        if (tasks.length > 0 && projectId) {
-          const taskRecords = tasks.map((t: any) => ({
-            project_id: projectId,
-            title: t.title,
-            description: t.description || null,
-            task_type: t.type || 'quest',
-            difficulty: Math.min(5, Math.max(1, t.difficulty || 3)),
-            status: 'pending',
-          }))
+      if (insErr || !created) continue
+      added++
+      newProjectIds.push(created)
 
-          const tasksRes = await fetch(`${SUPABASE_URL}/rest/v1/tasks`, {
-            method: 'POST',
-            headers: {
-              apikey: SUPABASE_KEY,
-              Authorization: `Bearer ${SUPABASE_KEY}`,
-              'Content-Type': 'application/json',
-              Prefer: 'return=representation',
-            },
-            body: JSON.stringify(taskRecords),
-          })
+      if (p.tasks.length > 0) {
+        const taskRows = p.tasks.map((t) => ({
+          project_id: created.id,
+          title: t.title,
+          description: t.description || null,
+          task_type: mapTaskType(t.title),
+          difficulty: 3,
+          url: t.link || p.website || null,
+          status: 'pending',
+          requirement_type: 'quest',
+        }))
+        const { data: insertedTasks } = await supabase
+          .from('tasks')
+          .insert(taskRows)
+          .select('id')
+        tasksAdded += insertedTasks?.length ?? 0
+      }
+    }
 
-          if (tasksRes.ok) {
-            const savedTasks = await tasksRes.json()
-            tasksSaved = savedTasks?.length || 0
-          }
+    // 2. Enrich + rescore (только новые, чтобы не съесть весь rate-limit)
+    const [weights, hot] = await Promise.all([getActiveWeights(), getHotNarratives()])
+    const enrichResults: { slug: string; updated: boolean; score?: number; error?: string }[] = []
+
+    for (let i = 0; i < newProjectIds.length; i++) {
+      const np = newProjectIds[i]
+      try {
+        const { data: row } = await supabase
+          .from('projects')
+          .select('id, slug, name, description, category, ecosystem, website_url, twitter_url, github_url, funding_amount, investors, token_status, farming_cost')
+          .eq('id', np.id)
+          .single()
+
+        if (!row) continue
+
+        const r = await enrichProject({
+          slug: row.slug,
+          name: row.name,
+          existing: {
+            description: row.description,
+            category: row.category,
+            ecosystem: row.ecosystem,
+            website_url: row.website_url,
+            twitter_url: row.twitter_url,
+            github_url: row.github_url,
+            funding_amount: row.funding_amount,
+            investors: row.investors,
+          },
+        })
+
+        const patchKeys = Object.keys(r.patch)
+        if (patchKeys.length > 0) {
+          await supabase.from('projects').update(r.patch).eq('id', row.id)
         }
 
-        newProjects.push({
-          name: projectName,
-          probability,
-          tasks_generated: tasksSaved,
-        })
+        // Перечитываем актуальные данные после enrichment (чтобы funding/investors были свежие)
+        const { data: fresh } = await supabase
+          .from('projects')
+          .select('token_status, funding_amount, investors, farming_cost')
+          .eq('id', row.id)
+          .single()
+
+        const breakdown = scoreProject(
+          {
+            token_status: ((fresh?.token_status as TokenStatus | null) ?? 'no_token') ?? undefined,
+            funding_amount: fresh?.funding_amount ?? row.funding_amount ?? undefined,
+            investors: fresh?.investors ?? row.investors ?? undefined,
+            farming_cost_usd: fresh?.farming_cost ?? row.farming_cost ?? undefined,
+            testnet_active: (fresh?.token_status ?? row.token_status) === 'no_token',
+            has_product: true,
+          },
+          { weights, hotNarratives: hot },
+        )
+
+        await supabase
+          .from('projects')
+          .update({ probability_score: breakdown.final_score })
+          .eq('id', row.id)
+
+        enrichResults.push({ slug: row.slug, updated: patchKeys.length > 0, score: breakdown.final_score })
+      } catch (err) {
+        enrichResults.push({ slug: np.slug, updated: false, error: (err as Error).message })
       }
+
+      if (i < newProjectIds.length - 1) await sleep(ENRICH_DELAY_MS)
     }
 
     return NextResponse.json({
       success: true,
+      total_candidates: candidates.length,
       added,
-      skipped,
-      errors: errors.slice(0, 3),
-      new_projects: newProjects,
+      existing,
+      tasks_added: tasksAdded,
+      enriched: enrichResults,
     })
   } catch (error) {
-    console.error('Auto-discover error:', error)
+    console.error('[projects/auto-discover]', error)
     return NextResponse.json({ error: 'Ошибка авто-обнаружения' }, { status: 500 })
   }
 }

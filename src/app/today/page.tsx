@@ -118,7 +118,7 @@ export default function TodayPage() {
       } else {
         setError(data.error || 'Ошибка выполнения')
       }
-    } catch (e) {
+    } catch {
       setError('Ошибка сети')
     } finally {
       setCompletingId(null)
@@ -132,14 +132,20 @@ export default function TodayPage() {
       const res = await fetch('/api/projects/auto-discover', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        setDiscoveredCount(data.added)
-        setSuccess(`Найдено ${data.added} новых проектов!`)
+        const added = data.added ?? 0
+        const enriched = (data.enriched as { updated?: boolean }[] | undefined)?.filter((e) => e.updated).length ?? 0
+        setDiscoveredCount(added)
+        setSuccess(
+          added > 0
+            ? `+${added} новых, обогащено: ${enriched}`
+            : `Новых нет (${data.existing ?? 0} уже есть)`,
+        )
         fetchPlan()
-        setTimeout(() => { setDiscoveredCount(0); setSuccess(null) }, 4000)
+        setTimeout(() => { setDiscoveredCount(0); setSuccess(null) }, 5000)
       } else {
         setError(data.error || 'Ошибка поиска')
       }
-    } catch (e) {
+    } catch {
       setError('Ошибка сети')
     } finally {
       setAutoDiscovering(false)
