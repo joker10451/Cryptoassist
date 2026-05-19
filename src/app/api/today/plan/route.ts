@@ -75,14 +75,20 @@ export async function GET() {
     const typedTasks = (tasks || []) as TaskWithProject[]
     const typedProjects = (projects || []) as Project[]
 
-    const scoredTasks = typedTasks.map(t => ({
-      ...t,
-      priority_score: calcPriorityScore(t),
-      reward_range: {
-        min: t.projects ? Math.round(t.projects.estimated_reward_min / typedTasks.length) : 0,
-        max: t.projects ? Math.round(t.projects.estimated_reward_max / typedTasks.length) : 0,
-      },
-    }))
+    const scoredTasks = typedTasks.map(t => {
+      const reward_min = t.projects && typedTasks.length > 0
+        ? Math.round(t.projects.estimated_reward_min / typedTasks.length)
+        : 0
+      const reward_max = t.projects && typedTasks.length > 0
+        ? Math.round(t.projects.estimated_reward_max / typedTasks.length)
+        : 0
+      return {
+        ...t,
+        priority_score: calcPriorityScore(t),
+        reward_min,
+        reward_max,
+      }
+    })
 
     scoredTasks.sort((a, b) => b.priority_score - a.priority_score)
 
@@ -114,7 +120,7 @@ export async function GET() {
                      p.probability_score >= 30 ? 'LOW' : 'NOISE',
       }))
 
-    const completedTasks = typedTasks.filter(t => (t as any).status === 'completed' || (t as any).completed_at).length
+    const completedTasks = typedTasks.filter(t => t.status === 'completed' || (t as { completed_at?: string | null }).completed_at).length
     const totalTasks = typedTasks.length
     const pendingTasks = totalTasks - completedTasks
 
@@ -168,8 +174,8 @@ export async function GET() {
         type: t.task_type,
         difficulty: t.difficulty,
         priority_score: t.priority_score,
-        reward_min: (t as any).reward_range?.min || 0,
-        reward_max: (t as any).reward_range?.max || 0,
+        reward_min: t.reward_min,
+        reward_max: t.reward_max,
         deadline: t.deadline,
       })),
       urgent: urgentTasks.map(t => ({

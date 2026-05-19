@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
-
 /**
  * GET /api/referrals/targets
  *   Список reply-targets с today's checkin status.
@@ -11,7 +8,7 @@ const db = supabase as any
 export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
 
-  const { data: targets, error } = await db
+  const { data: targets, error } = await supabase
     .from('reply_targets')
     .select('id, handle, display_name, tier, category, notes, active, last_replied_at, total_replies')
     .eq('active', true)
@@ -20,36 +17,27 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const { data: checkins } = await db
+  const { data: checkins } = await supabase
     .from('reply_checkins')
     .select('target_id')
     .eq('replied_at', today)
 
   const checkedSet = new Set<string>(
-    ((checkins as { target_id: string }[]) || []).map((c) => c.target_id),
+    (checkins ?? []).map((c) => c.target_id).filter((id): id is string => !!id),
   )
 
-  const enriched = ((targets as unknown[]) || []).map((t: unknown) => {
-    const target = t as {
-      id: string
-      handle: string
-      display_name: string | null
-      tier: number
-      category: string | null
-      notes: string | null
-      total_replies: number
-      last_replied_at: string | null
-    }
-    return { ...target, replied_today: checkedSet.has(target.id) }
-  })
+  const enriched = (targets ?? []).map((t) => ({
+    ...t,
+    replied_today: checkedSet.has(t.id),
+  }))
 
   // Stats
   const totalToday = checkedSet.size
-  const { data: weekData } = await db
+  const { data: weekData } = await supabase
     .from('reply_checkins')
     .select('id')
     .gte('replied_at', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
-  const totalWeek = (weekData as unknown[])?.length ?? 0
+  const totalWeek = weekData?.length ?? 0
 
   return NextResponse.json({ targets: enriched, stats: { today: totalToday, week: totalWeek } })
 }
@@ -64,7 +52,7 @@ export async function POST(req: NextRequest) {
   const handle = typeof body?.handle === 'string' ? body.handle.replace(/^@/, '').trim() : ''
   if (!handle) return NextResponse.json({ error: 'handle required' }, { status: 400 })
 
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from('reply_targets')
     .upsert(
       {
@@ -98,26 +86,26 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === 'remove') {
-    await db.from('reply_targets').update({ active: false }).eq('id', id)
+    await supabase.from('reply_targets').update({ active: false }).eq('id', id)
     return NextResponse.json({ ok: true })
   }
 
   // checkin
   const today = new Date().toISOString().slice(0, 10)
-  const { error: insErr } = await db
+  const { error: insErr } = await supabase
     .from('reply_checkins')
     .upsert({ target_id: id, replied_at: today }, { onConflict: 'target_id,replied_at' })
 
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
   // increment total + update last_replied_at
-  const { data: target } = await db
+  const { data: target } = await supabase
     .from('reply_targets')
     .select('total_replies')
     .eq('id', id)
     .single()
-  const prev = (target as { total_replies: number } | null)?.total_replies ?? 0
-  await db
+  const prev = target?.total_replies ?? 0
+  await supabase
     .from('reply_targets')
     .update({ total_replies: prev + 1, last_replied_at: new Date().toISOString() })
     .eq('id', id)

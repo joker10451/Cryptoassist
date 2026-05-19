@@ -506,6 +506,74 @@ export type Database = {
           },
         ]
       }
+      reply_checkins: {
+        Row: {
+          id: string
+          note: string | null
+          replied_at: string
+          target_id: string | null
+        }
+        Insert: {
+          id?: string
+          note?: string | null
+          replied_at?: string
+          target_id?: string | null
+        }
+        Update: {
+          id?: string
+          note?: string | null
+          replied_at?: string
+          target_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reply_checkins_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "reply_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reply_targets: {
+        Row: {
+          active: boolean
+          category: string | null
+          created_at: string
+          display_name: string | null
+          handle: string
+          id: string
+          last_replied_at: string | null
+          notes: string | null
+          tier: number
+          total_replies: number
+        }
+        Insert: {
+          active?: boolean
+          category?: string | null
+          created_at?: string
+          display_name?: string | null
+          handle: string
+          id?: string
+          last_replied_at?: string | null
+          notes?: string | null
+          tier?: number
+          total_replies?: number
+        }
+        Update: {
+          active?: boolean
+          category?: string | null
+          created_at?: string
+          display_name?: string | null
+          handle?: string
+          id?: string
+          last_replied_at?: string | null
+          notes?: string | null
+          tier?: number
+          total_replies?: number
+        }
+        Relationships: []
+      }
       scoring_outcomes: {
         Row: {
           airdrop_happened: boolean | null

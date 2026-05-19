@@ -40,8 +40,7 @@ export async function GET(req: NextRequest) {
   // Telegram alert: если появились новые кандидаты с confidence ≥ 80
   if (result.detected_upserted > 0) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from('detected_opportunities')
         .select('project_name, project_slug, confidence')
         .eq('status', 'pending')
@@ -49,7 +48,7 @@ export async function GET(req: NextRequest) {
         .order('confidence', { ascending: false })
         .limit(5)
       if (data && data.length > 0) {
-        const projects = (data as { project_name: string; project_slug: string; confidence: number }[]).map((d) => ({
+        const projects = data.map((d) => ({
           name: d.project_name,
           confidence: d.confidence,
           slug: d.project_slug,

@@ -116,6 +116,46 @@ Produce ONLY JSON:
   }
 }
 
+/**
+ * Эвристика ожидаемой награды.
+ *
+ * Базируется на:
+ *  - score (нормализован к множителю 0.4–1.6)
+ *  - token_status (no_token = большая премия, launched = низкая или 0)
+ *  - funding_amount (грубая корреляция с FDV → размер дропа)
+ *
+ * Цифры — это эмпирическая аппроксимация по последним L2-эирдропам
+ * (Arbitrum/Optimism/zkSync/Starknet/Scroll), не точное предсказание.
+ */
+function rewardBaseUsd(funding: number | null | undefined): { min: number; max: number } {
+  if (!funding || funding <= 0) return { min: 50, max: 500 }
+  if (funding >= 200_000_000) return { min: 800, max: 8000 }
+  if (funding >= 100_000_000) return { min: 500, max: 5000 }
+  if (funding >= 50_000_000) return { min: 300, max: 3000 }
+  if (funding >= 20_000_000) return { min: 200, max: 2000 }
+  if (funding >= 5_000_000) return { min: 120, max: 1200 }
+  return { min: 60, max: 600 }
+}
+
+function rewardMultiplier(score: number, tokenStatus: ScoringInputs['token_status']): number {
+  // 0.4 при score=0, 1.6 при score=100
+  const base = 0.4 + (score / 100) * 1.2
+  if (tokenStatus === 'launched') return base * 0.1
+  if (tokenStatus === 'announced') return base * 0.5
+  if (tokenStatus === 'rumored') return base * 0.9
+  return base // no_token / null — полный множитель
+}
+
+function estimateRewardMin(body: ScoreRequest, score: number): number {
+  const { min } = rewardBaseUsd(body.funding_amount)
+  return Math.max(0, Math.round(min * rewardMultiplier(score, body.token_status)))
+}
+
+function estimateRewardMax(body: ScoreRequest, score: number): number {
+  const { max } = rewardBaseUsd(body.funding_amount)
+  return Math.max(0, Math.round(max * rewardMultiplier(score, body.token_status)))
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as ScoreRequest
@@ -165,8 +205,8 @@ export async function POST(req: NextRequest) {
       detected_narratives: enrichment.detected_narratives,
       // Совместимость со старым клиентом: ai/page.tsx ждёт probability/estimatedRewardMin/...
       probability: finalBreakdown.final_score,
-      estimatedRewardMin: body.funding_amount ? Math.round(body.funding_amount * 0.001) : 100,
-      estimatedRewardMax: body.funding_amount ? Math.round(body.funding_amount * 0.01) : 5000,
+      estimatedRewardMin: estimateRewardMin(body, finalBreakdown.final_score),
+      estimatedRewardMax: estimateRewardMax(body, finalBreakdown.final_score),
       riskLevel: Math.round(finalBreakdown.risk / 10),
       popularity: finalBreakdown.market_momentum >= 60 ? 'high' : finalBreakdown.market_momentum >= 30 ? 'medium' : 'low',
       summary: enrichment.alpha_summary,
@@ -177,16 +217,15 @@ export async function POST(req: NextRequest) {
 
     // Лог в outcomes — без resolved_at, чтобы потом можно было закрыть исход вручную.
     if (body.projectId) {
-      // any-каст: scoring_outcomes ещё не сгенерирована в database.ts (свежая миграция)
-      void (supabase as unknown as { from: (t: string) => { insert: (v: unknown) => Promise<{ error: { message: string } | null }> } })
+      void supabase
         .from('scoring_outcomes')
         .insert({
           project_id: body.projectId,
           project_name: body.name,
           score_predicted: finalBreakdown.final_score,
           classification_predicted: finalBreakdown.classification,
-          breakdown: finalBreakdown,
-          weights_used: finalBreakdown.weights,
+          breakdown: finalBreakdown as unknown as import('@/types/database').Json,
+          weights_used: finalBreakdown.weights as unknown as import('@/types/database').Json,
         })
         .then(({ error }) => {
           if (error) console.warn('[score-project] outcomes log:', error.message)

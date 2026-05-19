@@ -15,8 +15,7 @@
 
 import { supabase } from '@/lib/supabase'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any
+const db = supabase
 
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || ''
 

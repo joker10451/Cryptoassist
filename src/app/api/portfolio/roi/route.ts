@@ -3,6 +3,12 @@ import { supabase } from '@/lib/supabase'
 
 const COSTS_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 дней
 
+interface CostsCache {
+  totalUsd?: number
+  totalTxCount?: number
+  totalFailedCount?: number
+}
+
 export async function GET() {
   try {
     const [walletsRes, projectsRes] = await Promise.all([
@@ -27,7 +33,8 @@ export async function GET() {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle()
-        return { wallet: w, costs: data?.output_data as any | null, computedAt: data?.created_at as string | null }
+        const costs = (data?.output_data ?? null) as CostsCache | null
+        return { wallet: w, costs, computedAt: data?.created_at ?? null }
       })
     )
 
