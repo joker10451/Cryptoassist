@@ -14,7 +14,7 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const password = process.env.DASHBOARD_PASSWORD
   if (!password) return NextResponse.next() // dev: не настроено — открыто
 
