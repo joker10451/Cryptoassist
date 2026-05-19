@@ -12,7 +12,7 @@
  * Rate: ~500 req/day (Builders plan).
  */
 
-const BASE = 'https://api.dropstab.com/api/v1'
+const BASE = 'https://public-api.dropstab.com/api/v1'
 const API_KEY = () => process.env.DROPSTAB_API_KEY || ''
 
 async function dtFetch<T>(path: string, timeoutMs = 12000): Promise<T | null> {
@@ -25,7 +25,7 @@ async function dtFetch<T>(path: string, timeoutMs = 12000): Promise<T | null> {
     const res = await fetch(`${BASE}${path}`, {
       headers: {
         Accept: 'application/json',
-        'x-api-key': key,
+        'x-dropstab-api-key': key,
       },
       signal: controller.signal,
     })
@@ -161,7 +161,7 @@ export async function isDropstabAvailable(): Promise<boolean> {
   if (!key) return false
   try {
     const res = await fetch(`${BASE}/coins?limit=1`, {
-      headers: { 'x-api-key': key, Accept: 'application/json' },
+      headers: { 'x-dropstab-api-key': key, Accept: 'application/json' },
     })
     return res.ok
   } catch {

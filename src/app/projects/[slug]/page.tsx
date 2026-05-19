@@ -80,9 +80,10 @@ export default function ProjectDetailPage() {
         const found = (allProjects as ProjectDetail[]).find((p) => p.slug === slug)
         setProject(found ?? null)
         if (found) {
-          const projectTasks = (Array.isArray(taskData) ? taskData : taskData.tasks ?? []).filter(
-            (t: { project_id?: string }) => t.project_id === found.id,
-          )
+          const allTasks = Array.isArray(taskData) ? taskData : taskData.tasks ?? taskData
+          const projectTasks = allTasks.filter(
+            (t: unknown) => (t as { project_id?: string }).project_id === found.id,
+          ) as Task[]
           setTasks(projectTasks)
         }
       })
