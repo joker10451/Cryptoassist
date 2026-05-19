@@ -50,6 +50,9 @@ export interface Project {
   github_url: string | null;
   ai_summary: string | null;
   status: 'active' | 'ended' | 'claimed';
+  referral_url?: string | null;
+  referral_code?: string | null;
+  referral_notes?: string | null;
   created_at: string;
   updated_at: string;
 }

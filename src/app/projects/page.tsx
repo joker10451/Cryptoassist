@@ -46,6 +46,8 @@ export default function ProjectsPage() {
   const [autoRefreshStatus, setAutoRefreshStatus] = useState<'idle' | 'refreshing' | 'done'>('idle')
   const [enrichStatus, setEnrichStatus] = useState<'idle' | 'running' | 'done'>('idle')
   const [enrichSummary, setEnrichSummary] = useState<string | null>(null)
+  const [rescoreStatus, setRescoreStatus] = useState<'idle' | 'running' | 'done'>('idle')
+  const [rescoreSummary, setRescoreSummary] = useState<string | null>(null)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -146,6 +148,33 @@ export default function ProjectsPage() {
     }
   }
 
+  const handleRescore = async () => {
+    if (rescoreStatus === 'running') return
+    setRescoreStatus('running')
+    setRescoreSummary(null)
+    try {
+      const res = await fetch('/api/projects/rescore-all', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setRescoreSummary(
+          `Пересчитано: ${data.updated}/${data.total_projects}` +
+            (data.top_changes?.[0]
+              ? ` · топ-смещение: ${data.top_changes[0].slug} ${data.top_changes[0].old}→${data.top_changes[0].new}`
+              : ''),
+        )
+        refresh()
+        setRescoreStatus('done')
+        setTimeout(() => setRescoreStatus('idle'), 5000)
+      } else {
+        setRescoreSummary(`Ошибка: ${data.error || 'unknown'}`)
+        setRescoreStatus('idle')
+      }
+    } catch (err) {
+      setRescoreSummary(`Ошибка: ${(err as Error).message}`)
+      setRescoreStatus('idle')
+    }
+  }
+
   const filteredProjects = projects.filter((project) => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       project.description?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -177,6 +206,9 @@ export default function ProjectsPage() {
           {enrichSummary && (
             <p className="text-xs text-orange-300 mt-1">{enrichSummary}</p>
           )}
+          {rescoreSummary && (
+            <p className="text-xs text-cyan-300 mt-1">{rescoreSummary}</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {discoveredCount > 0 && (
@@ -207,7 +239,7 @@ export default function ProjectsPage() {
           <button
             onClick={handleEnrich}
             disabled={enrichStatus === 'running'}
-            title="Обогатить проекты данными из CoinGecko, DefiLlama и GitHub"
+            title="Обогатить проекты данными из CoinGecko, DefiLlama, GitHub и DropsTab"
             className={`flex items-center gap-2 px-3 py-2 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
               enrichStatus === 'done'
                 ? 'bg-green-500/20 text-green-400 border-green-500/30'
@@ -216,6 +248,19 @@ export default function ProjectsPage() {
           >
             <Database size={14} className={enrichStatus === 'running' ? 'animate-pulse' : ''} />
             {enrichStatus === 'running' ? 'Обогащение…' : enrichStatus === 'done' ? 'Готово' : 'Обогатить из API'}
+          </button>
+          <button
+            onClick={handleRescore}
+            disabled={rescoreStatus === 'running'}
+            title="Пересчитать probability_score через v2 движок (быстро, без AI)"
+            className={`flex items-center gap-2 px-3 py-2 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+              rescoreStatus === 'done'
+                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/30'
+            }`}
+          >
+            <RefreshCw size={14} className={rescoreStatus === 'running' ? 'animate-spin' : ''} />
+            {rescoreStatus === 'running' ? 'Пересчёт…' : rescoreStatus === 'done' ? 'Готово' : 'Пересчитать score'}
           </button>
           <button
             onClick={() => setShowAddModal(true)}
@@ -319,8 +364,13 @@ export default function ProjectsPage() {
               <GlassCard className="h-full">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <a href={`/projects/${project.slug}`} className="text-lg font-bold text-text-primary hover:text-cyan-400 transition-colors">
+                    <a href={`/projects/${project.slug}`} className="text-lg font-bold text-text-primary hover:text-cyan-400 transition-colors flex items-center gap-2">
                       {project.name}
+                      {project.referral_url && (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">
+                          REF
+                        </span>
+                      )}
                     </a>
                     <p className="text-xs text-text-muted capitalize">{project.category} • {project.ecosystem}</p>
                   </div>
